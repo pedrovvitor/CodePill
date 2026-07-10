@@ -24,6 +24,8 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
+      // lcov feeds the SonarQube scan in CI
+      reporter: ['text', 'html', 'lcov'],
       // TESTING_QUALITY.md §2 — 85% floor; exclusions limited to bootstrap
       // wiring (src/app, main.tsx) and generated code (api-types.gen.ts).
       include: ['src/**/*.{ts,tsx}'],

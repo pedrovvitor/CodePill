@@ -1,0 +1,17 @@
+# gitleaks config — default rules plus an allowlist for the documented
+# local-development fixtures (SECURITY.md §4.4: these are local-only defaults,
+# never used outside `local`; real environments use the secret manager).
+title = "CodePill gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented local-dev fixture credentials"
+paths = [
+  '''ops/keycloak/realm-codepill\.json''',
+  '''\.env\.example$''',
+]
+regexes = [
+  '''codepill-local''',
+]

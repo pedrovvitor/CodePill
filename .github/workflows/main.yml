@@ -1,0 +1,248 @@
+# CodePill CI — quality gates in the order mandated by TESTING_QUALITY.md §4.
+#
+# Blocking gates on every push/PR:
+#   1. Lint/format         (frontend ESLint + Prettier + tsc; backend Spotless pending — see backlog)
+#   2. Unit tests + coverage ≥85%   (JaCoCo per-module check; Vitest thresholds)
+#   3. Integration tests   (Testcontainers PostgreSQL/Redis inside `mvnw verify`)
+#   4. Security gates      (gitleaks, pnpm audit, Trivy; OWASP Dependency-Check when NVD_API_KEY is set)
+#   5. SonarQube scans     (when SONAR_HOST_URL + SONAR_TOKEN secrets are set; quality gate blocks)
+#   6. E2E (Playwright)    (ephemeral docker compose stack: PostgreSQL, Redis, Keycloak, OTel)
+#
+# Coverage below 85% fails unconditionally (JaCoCo/Vitest) — no Sonar required.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *' # nightly full run (TESTING_QUALITY.md §3.3)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · JUnit + Testcontainers + JaCoCo ≥85%
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Sonar blame data
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Unit + integration tests, ArchUnit, coverage gate (mvnw verify)
+        run: |
+          chmod +x mvnw
+          ./mvnw -B verify
+
+      - name: SonarQube scan (backend) — skipped until SONAR_* secrets are configured
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        run: |
+          ./mvnw -B -DskipTests org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar \
+            -Dsonar.projectKey=codepill-backend \
+            -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.token="$SONAR_TOKEN" \
+            -Dsonar.coverage.jacoco.xmlReportPaths='**/target/site/jacoco/jacoco.xml' \
+            -Dsonar.qualitygate.wait=true
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/**/target/*-reports/
+          retention-days: 7
+
+  frontend:
+    name: Frontend · ESLint + tsc + Vitest ≥85%
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (ESLint incl. Clean Architecture boundaries)
+        run: pnpm lint
+
+      - name: Format check (Prettier)
+        run: pnpm format:check
+
+      - name: Unit/component tests + coverage gate (Vitest)
+        run: pnpm test:coverage
+
+      - name: Type check + production build (tsc -b && vite build)
+        run: pnpm build
+
+      - name: SonarQube scan (frontend) — skipped until SONAR_* secrets are configured
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        uses: sonarsource/sonarqube-scan-action@v5
+        with:
+          projectBaseDir: frontend
+
+  security:
+    name: Security · gitleaks + pnpm audit + Trivy (+ OWASP DC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full history
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Dependency audit — fails on known critical CVEs (SECURITY.md §4.5)
+        run: |
+          pnpm --dir frontend audit --audit-level critical
+          pnpm --dir e2e audit --audit-level critical
+
+      - name: Vulnerability scan (Trivy, lockfiles + configs)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Set up Java for OWASP Dependency-Check
+        if: env.NVD_API_KEY != ''
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: OWASP Dependency-Check (backend) — skipped until NVD_API_KEY secret is configured
+        if: env.NVD_API_KEY != ''
+        working-directory: backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B org.owasp:dependency-check-maven:12.1.1:aggregate \
+            -DnvdApiKey="$NVD_API_KEY" \
+            -DfailBuildOnCVSS=9
+
+  e2e:
+    name: E2E · Playwright vs ephemeral stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ephemeral infrastructure: PostgreSQL, Redis, Keycloak (realm imported
+      # from ops/keycloak) and the OTel collector (+ its Loki/Tempo deps),
+      # exactly as in local dev. Torn down (volumes included) at the end.
+      - name: Start ephemeral infrastructure
+        run: docker compose up -d --wait postgres redis keycloak otel-collector
+
+      - name: Apply database migrations (Flyway)
+        run: |
+          docker compose run --rm flyway-identity
+          docker compose run --rm flyway-catalog
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build and start the catalog service
+        working-directory: backend
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -DskipTests package
+          nohup java -jar codepill-catalog/bootstrap/target/codepill-catalog-bootstrap-*.jar \
+            > /tmp/catalog.log 2>&1 &
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            e2e/pnpm-lock.yaml
+
+      - name: Install web + e2e dependencies
+        run: |
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir e2e install --frozen-lockfile
+          pnpm --dir e2e exec playwright install --with-deps chromium
+
+      - name: Wait for the catalog service to be ready
+        run: |
+          timeout 150 bash -c \
+            'until curl -fsS http://localhost:8080/actuator/health/readiness > /dev/null; do sleep 3; done'
+
+      - name: Run E2E journeys (Playwright builds and serves the SPA)
+        working-directory: e2e
+        run: pnpm test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 7
+
+      - name: Catalog service log on failure
+        if: failure()
+        run: tail -n 200 /tmp/catalog.log || true
+
+      - name: Tear down ephemeral stack
+        if: always()
+        run: docker compose down -v
