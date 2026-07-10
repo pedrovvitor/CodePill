@@ -94,6 +94,14 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 
 ## Log (newest first)
 
+## [2026-07-10] Initialize git repository with semantic history
+- **Agent/Author:** Claude (DevOps session)
+- **Task:** Initialize git and commit all existing work step by step with concise semantic messages.
+- **Changes:** Repo initialized on branch `main`; 18 conventional commits reconstructing the development order: governance docs → repo hygiene (`.gitignore`, `.env.example`) → infra (db / keycloak / observability / compose) → `codepill-catalog` by layer (build → OpenAPI contract → domain → application → adapters → bootstrap) → frontend by layer (scaffold → domain/application → infrastructure → ui/app) → changelog. Added `.gitattributes` pinning `*.sql` to LF (Flyway checksums are byte-sensitive; `autocrlf` on a fresh clone would otherwise break `flyway validate`) and `mvnw`/`*.cmd` endings.
+- **Standards compliance:** N/A — version-control housekeeping, no application code changed. No secrets tracked (verified: 180 files, no `.env`, `node_modules`, `dist`, `coverage`, `target`, `.idea`).
+- **Tests:** N/A — no code changes; working tree clean after commits.
+- **Follow-ups / debt:** Add a remote and push; layer-split commits are semantic units and intermediate backend commits don't build standalone (parent POM references all modules) — irrelevant going forward but noted for anyone bisecting before `ec42a83`.
+
 ## [2026-07-10] Scaffold frontend: codepill-web SPA (React 19/TS, Tailwind, TanStack Query, OAuth2 PKCE, RHF+Zod, OTel browser tracing)
 - **Agent/Author:** Claude (Senior Frontend Engineer session)
 - **Task:** Initialize the React + TypeScript SPA under `/frontend` (Vite); Tailwind mobile-first vertical-scroll UI; TanStack Query against the catalog API; OAuth2 login flow; "Create Pill" form with React Hook Form + Zod; OpenTelemetry browser tracing joining backend traces; record structure and state decisions here.
