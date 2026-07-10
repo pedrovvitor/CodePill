@@ -1,0 +1,6 @@
+# Test overrides: no OTLP collector is running during CI/IT — sample nothing
+# and keep export quiet. Containers inject datasource/redis via @ServiceConnection.
+management:
+  tracing:
+    sampling:
+      probability: 0.0

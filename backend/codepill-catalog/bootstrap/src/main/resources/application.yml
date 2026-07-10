@@ -1,0 +1,72 @@
+# codepill-catalog runtime configuration.
+# All credentials/URLs are overridable via environment (12-factor, ARCHITECTURE.md §5);
+# defaults target the local docker-compose stack. No secrets committed.
+
+spring:
+  application:
+    name: codepill-catalog
+  threads:
+    virtual:
+      enabled: true          # Java 25 virtual threads for blocking I/O (ARCHITECTURE.md §2)
+  datasource:
+    url: ${CODEPILL_CATALOG_DB_URL:jdbc:postgresql://localhost:5433/codepill_catalog}
+    username: ${CODEPILL_DB_USER:codepill}
+    password: ${CODEPILL_DB_PASSWORD:codepill-local}
+  jpa:
+    hibernate:
+      ddl-auto: validate     # schema is owned by Flyway, Hibernate only validates
+    open-in-view: false
+  flyway:
+    enabled: true            # migrations ship in adapters/out/persistence resources
+  data:
+    redis:
+      host: ${CODEPILL_REDIS_HOST:localhost}
+      port: ${CODEPILL_REDIS_PORT:6379}
+      password: ${CODEPILL_REDIS_PASSWORD:codepill-local}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # SECURITY.md §2.1 — JWTs validated locally against the IdP's JWKS
+          issuer-uri: ${CODEPILL_OIDC_ISSUER:http://localhost:8180/realms/codepill}
+          audiences: codepill-api
+
+server:
+  port: ${CODEPILL_CATALOG_PORT:8080}   # scraped by Prometheus via host.docker.internal:8080
+
+codepill:
+  env: ${CODEPILL_ENV:local}
+  version: ${CODEPILL_SERVICE_VERSION:0.1.0-SNAPSHOT}
+  cache:
+    pill-ttl: ${CODEPILL_CACHE_PILL_TTL:10m}
+    page-ttl: ${CODEPILL_CACHE_PAGE_TTL:60s}
+
+# OBSERVABILITY.md §4.1 — Actuator baseline
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true          # /actuator/health/{liveness,readiness}
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  observations:
+    key-values:
+      service: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${CODEPILL_TRACE_SAMPLING:1.0}   # non-prod samples 100% (OBSERVABILITY.md §2)
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # spans → OTel Collector → Tempo; setting the endpoint activates the exporter (Boot 4)
+          endpoint: ${CODEPILL_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+    resource-attributes:
+      deployment.environment: ${CODEPILL_ENV:local}
+      service.version: ${CODEPILL_SERVICE_VERSION:0.1.0-SNAPSHOT}

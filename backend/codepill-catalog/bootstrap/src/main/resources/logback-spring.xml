@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OBSERVABILITY.md §3.1 — structured JSON to stdout, one object per line, with
+  the exact base fields (timestamp, level, service, env, version, logger,
+  thread, trace_id, span_id, message) and business fields nested under
+  "context". Human-readable console only for the `local` profile.
+-->
+<configuration>
+  <springProperty scope="context" name="serviceName" source="spring.application.name" defaultValue="codepill-catalog"/>
+  <springProperty scope="context" name="serviceEnv" source="codepill.env" defaultValue="local"/>
+  <springProperty scope="context" name="serviceVersion" source="codepill.version" defaultValue="0.0.0"/>
+
+  <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp>
+          <fieldName>timestamp</fieldName>
+          <timeZone>UTC</timeZone>
+        </timestamp>
+        <pattern>
+          <pattern>
+            {
+              "level": "%level",
+              "service": "${serviceName}",
+              "env": "${serviceEnv}",
+              "version": "${serviceVersion}",
+              "logger": "%logger",
+              "thread": "%thread",
+              "trace_id": "%mdc{traceId}",
+              "span_id": "%mdc{spanId}",
+              "message": "%message"
+            }
+          </pattern>
+        </pattern>
+        <!-- business fields via kv(...) land under context, snake_case -->
+        <nestedField>
+          <fieldName>context</fieldName>
+          <providers>
+            <arguments/>
+          </providers>
+        </nestedField>
+        <stackTrace>
+          <fieldName>stack_trace</fieldName>
+        </stackTrace>
+      </providers>
+    </encoder>
+  </appender>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{40} [%mdc{traceId}] - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- local profile: human-readable console (allowed by OBSERVABILITY.md §3.1) -->
+  <springProfile name="local">
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+  </springProfile>
+
+  <springProfile name="!local">
+    <root level="INFO">
+      <appender-ref ref="JSON"/>
+    </root>
+  </springProfile>
+</configuration>
