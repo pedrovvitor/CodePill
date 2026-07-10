@@ -1,0 +1,11 @@
+# Normalize everything; pin the files where byte-level endings matter.
+* text=auto
+
+# Flyway checksums are byte-sensitive — keep migrations LF everywhere
+*.sql text eol=lf
+
+# Shell/JVM wrapper scripts
+mvnw text eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
