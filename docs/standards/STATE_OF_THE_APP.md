@@ -15,12 +15,13 @@
 
 ## Current Snapshot
 
-- **Phase:** 1 — First vertical slice (catalog service + web SPA scaffolded; E2E wiring pending)
+- **Phase:** 1 — First vertical slice complete (catalog service + web SPA + CI pipeline + E2E journeys)
 - **Deployable services:** `codepill-catalog` (Java 25, Spring Boot 4.0.7, Maven multi-module under `/backend`, wrapper committed). Runs on host port **8080** (`CODEPILL_CATALOG_PORT`), scraped by Prometheus via `host.docker.internal:8080`.
 - **Local dev infrastructure:** ✅ docker-compose stack (PostgreSQL 17, Redis 7, Keycloak 26.2, OTel Collector, Prometheus, Grafana, Loki, Tempo) — see "Local Dev Stack" below.
 - **Database schema:** Flyway v1 for `codepill_identity` (users, still under `ops/db/migrations/identity/`) and `codepill_catalog` (pills, tags, pill_tags — now owned by the service at `backend/codepill-catalog/adapters/out/persistence/src/main/resources/db/migration/`, checksum-identical; compose mounts that path).
 - **Frontend:** ✅ `codepill-web` SPA under `/frontend` (React 19 + TypeScript strict, Vite 8, pnpm, Tailwind 4). Clean Architecture layers per `ARCHITECTURE.md` §4 enforced by `eslint-plugin-boundaries`; OAuth2 Code+PKCE via `react-oidc-context` (tokens in memory); TanStack Query 5 for all server state; API types generated from the OpenAPI contract; OTel browser tracing → collector `:4318`. Dev server on **5173** (Vite proxy `/api` → `localhost:8080`). See the 2026-07-10 entry for structure and decisions.
-- **CI/CD:** not configured (JaCoCo 85% line+branch gate already enforced by `mvnw verify`)
+- **CI/CD:** ✅ GitHub Actions (`.github/workflows/main.yml`) on push/PR to `main` + nightly + manual. Jobs: **backend** (`mvnw verify`: JUnit + Testcontainers ITs + ArchUnit + JaCoCo ≥85% gate, then SonarQube `codepill-backend` with blocking quality gate), **frontend** (ESLint boundaries + Prettier + Vitest ≥85% gate + `tsc`/build, then SonarQube `codepill-frontend`), **security** (gitleaks full-history, `pnpm audit --audit-level critical`, Trivy CRITICAL, OWASP Dependency-Check CVSS≥9 when `NVD_API_KEY` set), **e2e** (Playwright vs ephemeral compose stack). Sonar/OWASP steps self-skip until the `SONAR_HOST_URL`/`SONAR_TOKEN`/`NVD_API_KEY` repo secrets exist; every coverage and vulnerability gate fails the build unconditionally.
+- **E2E:** ✅ Playwright suite in `/e2e` (6 journeys, mobile viewport): OAuth2 Code+PKCE login/logout via Keycloak, role-gated authoring nav, create-pill form (+client-side contract validation), feed infinite scroll with API-seeded data (author drafts → curator publishes). See the 2026-07-10 CI entry for how to run locally.
 - **Test coverage:** ≥85% line+branch per module enforced at build; domain/application near 100%. Backend: 125 unit tests + 17 integration tests (Testcontainers PostgreSQL/Redis) + 4 ArchUnit rules. Frontend: 117 Vitest tests, 99% statements / 90% branches / 100% functions (85% gate wired in `vite.config.ts`). All green.
 - **Known risks / open decisions:**
   - IdP choice defaulted to Keycloak (`SECURITY.md`) — revisit via ADR if managed IdP preferred.
@@ -71,7 +72,7 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 ## Next Up (prioritized backlog)
 
 1. ~~Scaffold monorepo: Maven multi-module backend skeleton (`codepill-catalog` first) + Vite React/TS frontend~~ ✅ Done — backend 2026-07-09, frontend 2026-07-10.
-2. CI pipeline with all quality gates from `TESTING_QUALITY.md` §4 (coverage gate already wired into `mvnw verify`; missing: Spotless/Error Prone, OWASP Dependency-Check, gitleaks, pipeline itself).
+2. ~~CI pipeline with all quality gates from `TESTING_QUALITY.md` §4~~ ✅ Done 2026-07-10 (GitHub Actions: tests+coverage gates, gitleaks/audit/Trivy/OWASP-DC, SonarQube, E2E). Remaining from this item: backend Spotless/Error Prone lint stage.
 3. ~~Local dev stack: docker-compose with PostgreSQL, Keycloak, OTel Collector, Grafana/Loki/Tempo/Prometheus.~~ ✅ Done 2026-07-09 (Redis included).
 4. `codepill-identity` integration with Keycloak; security test matrix.
 5. First vertical slice: author creates a pill → learner completes it (TDD, fully observable, secured).
@@ -93,6 +94,40 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 ---
 
 ## Log (newest first)
+
+## [2026-07-10] CI pipeline (GitHub Actions) + Playwright E2E suite + two realm-import bug fixes
+- **Agent/Author:** Claude (DevSecOps Engineer session)
+- **Task:** GitHub Actions pipeline (`.github/workflows/main.yml`) running backend JUnit, frontend Vitest, SonarQube scans, failing on <85% coverage or vulnerabilities; Playwright E2E suite (OAuth2 login, create pill, feed scroll) run against ephemeral containers in CI; publish the repo to GitHub; document everything here.
+- **Changes:**
+  - **`.github/workflows/main.yml`** — triggers: push/PR to `main`, nightly cron (03:00 UTC), manual. Stages (TESTING_QUALITY.md §4 order, all blocking):
+    1. **backend** — Temurin 25, `mvnw -B verify` (125 unit + 17 Testcontainers ITs + 4 ArchUnit; JaCoCo ≥85% line+branch per module fails the build), then SonarQube scan `codepill-backend` (`sonar.qualitygate.wait=true`) when `SONAR_HOST_URL`+`SONAR_TOKEN` secrets are set; test reports uploaded on failure.
+    2. **frontend** — pnpm 11 / Node 24: `pnpm lint` (ESLint + boundaries), `format:check`, `test:coverage` (Vitest thresholds ≥85% fail the build; lcov now emitted for Sonar), `build` (`tsc -b` + vite), then SonarQube scan `codepill-frontend` (`frontend/sonar-project.properties`, blocking quality gate) under the same secret condition.
+    3. **security** — gitleaks (full history; `.gitleaks.toml` = default rules + allowlist for the documented local-dev fixtures), `pnpm audit --audit-level critical` for `frontend/` and `e2e/` (fails on known critical CVEs, SECURITY.md §4.5), Trivy fs scan (CRITICAL, fail-on-find), OWASP Dependency-Check (`failBuildOnCVSS=9`) when the `NVD_API_KEY` secret is set.
+    4. **e2e** (needs backend+frontend) — **ephemeral containers**: `docker compose up -d --wait postgres redis keycloak otel-collector` (realm auto-imported), `docker compose run --rm flyway-identity|flyway-catalog`, catalog jar built and started on the runner (same host-process topology as local dev), Playwright (chromium, mobile viewport) with the SPA production build served by `vite preview` on 5173; report uploaded on failure; `docker compose down -v` always.
+  - **`/e2e`** — Playwright/TypeScript project (pnpm), 6 journeys in 3 specs, `getByRole`/`getByLabel` selectors only, zero fixed sleeps, `retries: 0`:
+    - `auth.spec.ts` — learner OAuth2 Code+PKCE login via Keycloak's hosted form reaches the protected feed (and has no Create entry); author sees the role-gated Create destination; sign-out via end-session returns to login.
+    - `create-pill.spec.ts` — author creates a pill through the form (slug auto-suggestion asserted, success panel), and client-side Zod validation blocks contract violations before any API call.
+    - `feed-scroll.spec.ts` — API-based fixture per §3.3: author and curator tokens are captured from real Authorization headers after UI logins (tokens are in-memory by design; the network boundary is the only readable place), 12 pills drafted via `POST /api/v1/pills` and published via `/publish`, then a learner scrolls and the IntersectionObserver sentinel auto-loads page 2 (asserted via article count and a page-2 title).
+    - Runs **serially** (`workers: 1`): Keycloak's brute-force quick-login check rejects same-user logins <1s apart, so parallel workers are inherently racy.
+  - **🐛 Two real integration bugs found by the E2E suite, fixed in `ops/keycloak/realm-codepill.json`** (a full Keycloak realm import does NOT create the built-in client scopes; the previously declared `defaultClientScopes` were silently dropped):
+    1. `invalid_scope` on every SPA login — the `profile`/`email` client scopes did not exist in the realm. Added both (username/full-name/email mappers); `codepill-web` defaults now `basic, profile, email, codepill-api` (dangling `roles` entry removed — the flat roles claim comes from `codepill-api`).
+    2. **500 on `POST /api/v1/pills`** — access tokens carried no `sub` claim (Keycloak 24+ moved `sub` into the built-in `basic` scope), so `CallerMapper`'s `UUID.fromString(jwt.getSubject())` threw NPE. Added the `basic` scope (`oidc-sub-mapper`) as default for `codepill-web` **and** `codepill-service`. Backend ITs never caught this because `spring-security-test` JWTs always carry `sub` — exactly the gap E2E exists to close.
+    - The running local realm was patched **additively** via the admin API to match the file (realm deletion/reimport deliberately avoided); fresh environments (CI) import the corrected file from scratch.
+  - Supporting: `frontend/vite.config.ts` now emits `lcov` coverage; `frontend/sonar-project.properties`; `.gitleaks.toml`; repo published to GitHub (`pedrovvitor`).
+- **How to run the E2E suite locally:**
+  1. `docker compose up -d` (infra + realm import; migrations auto-apply)
+  2. Start the catalog service on :8080 — `cd backend && ./mvnw -B -DskipTests package && java -jar codepill-catalog/bootstrap/target/codepill-catalog-bootstrap-*.jar`
+  3. `cd e2e && pnpm install && pnpm exec playwright install chromium`
+  4. `pnpm test` — Playwright builds the SPA and serves it via `vite preview` on :5173 by itself (outside CI an already-running server on 5173 is reused). `pnpm test:headed` to watch; `pnpm report` for the HTML report.
+  - Stacks created before 2026-07-10 need the realm fix once: recreate the realm from the updated import file, or add the `basic`/`profile`/`email` client scopes via the admin console/API.
+- **Standards compliance:** pipeline implements TESTING_QUALITY.md §4 stages 2–5 (stage-1 backend lint = Spotless/Error Prone still pending, tracked below); coverage gates ≥85% enforced by build tooling (not only Sonar); security gates per SECURITY.md §4.4/§4.5; E2E per §3.3 (critical journeys only, role-based selectors, API-seeded data, auto-waiting, no retries). E2E verified green locally against the real stack — and the suite caught two production-blocking IdP config bugs before first deploy.
+- **Tests:** 6 Playwright journeys, 6/6 green locally (11.2s, serial); `e2e` typechecks clean. Backend/frontend suites unchanged and green.
+- **Follow-ups / debt:**
+  - Backend lint/format gate (Spotless + Error Prone) — the only §4 stage still missing.
+  - Configure repo secrets to arm the optional gates: `SONAR_HOST_URL` + `SONAR_TOKEN` (SonarQube, blocking quality gates), `NVD_API_KEY` (OWASP Dependency-Check). Until then those steps self-skip visibly in the run log.
+  - PR-smoke vs nightly-full E2E split (§3.3) — the full 6-test suite currently runs on every trigger (it is small); split when it grows.
+  - E2E seeds are not cleaned up (each local run adds 12 published pills + 1 draft; CI stacks are destroyed). Add API-based cleanup if local noise becomes a problem.
+  - Consider Dockerfiles + containerized app images so E2E runs the apps in containers too (today they run as host processes, mirroring the local dev topology).
 
 ## [2026-07-10] Initialize git repository with semantic history
 - **Agent/Author:** Claude (DevOps session)
