@@ -1,0 +1,12 @@
+# Local environment overrides — never commit (SECURITY.md §4.4)
+.env
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Build output (future modules)
+target/
+node_modules/
+dist/
