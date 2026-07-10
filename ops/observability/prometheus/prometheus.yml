@@ -1,0 +1,41 @@
+# CodePill local Prometheus. Loki label policy (OBSERVABILITY.md §3.1) does not
+# apply here, but keep target labels low-cardinality all the same.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Collector's own health + all OTLP-exported app metrics it re-exposes
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]   # collector internals
+      - targets: ["otel-collector:8889"]   # app metrics via OTLP
+
+  - job_name: keycloak
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["keycloak:9000"]
+
+  # Spring Boot services run on the HOST during development and expose
+  # /actuator/prometheus (OBSERVABILITY.md §4.1). Add one target per service
+  # as it comes online.
+  - job_name: codepill-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: codepill-catalog   # backend/codepill-catalog, CODEPILL_CATALOG_PORT
+      # - targets: ["host.docker.internal:8081"]
+      #   labels:
+      #     service: codepill-identity
+      # - targets: ["host.docker.internal:8082"]
+      #   labels:
+      #     service: codepill-learning
+      # - targets: ["host.docker.internal:8083"]
+      #   labels:
+      #     service: codepill-engagement
