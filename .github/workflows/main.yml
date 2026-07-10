@@ -152,8 +152,11 @@ jobs:
           sudo dpkg -i /tmp/trivy.deb
           trivy --version
 
+      # --offline-scan: pom.xml scanning otherwise resolves parent POMs from
+      # Maven Central at scan time, which rate-limits shared runner IPs (429).
+      # The full backend dependency tree is OWASP Dependency-Check's job below.
       - name: Vulnerability scan (Trivy, lockfiles + configs)
-        run: trivy fs --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 .
+        run: trivy fs --scanners vuln --severity CRITICAL --ignore-unfixed --offline-scan --exit-code 1 .
 
       - name: Set up Java for OWASP Dependency-Check
         if: env.NVD_API_KEY != ''
