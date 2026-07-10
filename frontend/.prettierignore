@@ -1,0 +1,4 @@
+dist
+coverage
+pnpm-lock.yaml
+src/domain/catalog/api-types.gen.ts
