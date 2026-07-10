@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: CodePill Catalog API
+  version: 1.0.0
+  description: |
+    Pills CRUD + publishing for the CodePill microlearning platform
+    (`codepill-catalog` service). Contract-first per ARCHITECTURE.md §5;
+    breaking changes require `/api/v2`.
+
+    Every endpoint requires a Bearer JWT issued by the CodePill IdP
+    (`aud=codepill-api`); authorization is role-based with ownership checks
+    (SECURITY.md §3). Errors are RFC 9457 `application/problem+json`.
+servers:
+  - url: http://localhost:8080
+    description: local development (docker-compose stack)
+
+security:
+  - bearerJwt: []
+
+tags:
+  - name: pills
+
+paths:
+  /api/v1/pills:
+    get:
+      tags: [pills]
+      operationId: listPills
+      summary: Published pill feed, newest first
+      description: Requires LEARNER. Served read-through from Redis (60s page TTL).
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: One page of published pills
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PillPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [pills]
+      operationId: createPill
+      summary: Draft a new pill
+      description: Requires AUTHOR. The caller (JWT `sub`) becomes the pill's author.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PillInput" }
+      responses:
+        "201":
+          description: Pill created as DRAFT
+          headers:
+            Location:
+              schema: { type: string }
+              description: URL of the created pill
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pill" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/pills/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [pills]
+      operationId: getPill
+      summary: Fetch a single pill
+      description: |
+        Requires LEARNER. PUBLISHED pills are visible to any authenticated user
+        (cached read-through, 10m TTL). Unpublished pills are visible only to
+        their author and CURATOR+; everyone else receives 404 (existence hiding).
+      responses:
+        "200":
+          description: The pill
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pill" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [pills]
+      operationId: updatePill
+      summary: Replace a pill's editable fields
+      description: Requires AUTHOR + ownership (CURATOR+ may edit any pill). ARCHIVED pills cannot be edited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PillInput" }
+      responses:
+        "200":
+          description: Updated pill
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pill" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [pills]
+      operationId: deletePill
+      summary: Hard-delete a pill
+      description: Requires AUTHOR + ownership (CURATOR+ may delete any pill). Audited (SECURITY.md §4.8).
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/pills/{id}/publish:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [pills]
+      operationId: publishPill
+      summary: Publish a pill into the public feed
+      description: Requires CURATOR. Allowed from DRAFT or IN_REVIEW. Audited.
+      responses:
+        "200":
+          description: Published pill
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pill" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+components:
+  securitySchemes:
+    bearerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token from the CodePill IdP (issuer `/realms/codepill`,
+        `aud=codepill-api`, RS256, TTL ≤ 15 min). Roles arrive in the flat
+        `roles` claim: LEARNER ⊂ AUTHOR ⊂ CURATOR ⊂ ADMIN.
+
+  schemas:
+    PillInput:
+      type: object
+      required: [title, slug, content, type, estimatedDurationSeconds]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        slug:
+          type: string
+          maxLength: 180
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: Unique across all pills
+        summary: { type: [string, "null"], maxLength: 500 }
+        content:
+          type: object
+          description: Pill body as an arbitrary JSON document (stored as jsonb)
+        type: { $ref: "#/components/schemas/PillType" }
+        estimatedDurationSeconds: { type: integer, minimum: 1, maximum: 86400 }
+
+    Pill:
+      type: object
+      required:
+        [
+          id,
+          authorId,
+          title,
+          slug,
+          summary,
+          content,
+          type,
+          status,
+          estimatedDurationSeconds,
+          publishedAt,
+          createdAt,
+          updatedAt,
+          version,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        authorId: { type: string, format: uuid }
+        title: { type: string }
+        slug: { type: string }
+        summary: { type: [string, "null"] }
+        content: { type: object }
+        type: { $ref: "#/components/schemas/PillType" }
+        status: { $ref: "#/components/schemas/PillStatus" }
+        estimatedDurationSeconds: { type: integer }
+        publishedAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        version: { type: integer, description: Optimistic-locking version }
+
+    PillPage:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/Pill" }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+        totalPages: { type: integer }
+
+    PillType:
+      type: string
+      enum: [ARTICLE, QUIZ, FLASHCARD, VIDEO]
+
+    PillStatus:
+      type: string
+      enum: [DRAFT, IN_REVIEW, PUBLISHED, ARCHIVED]
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        errors:
+          type: object
+          additionalProperties: { type: string }
+          description: Field-level validation messages (400 only)
+
+  responses:
+    BadRequest:
+      description: Validation failure or malformed request
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: Missing, expired or invalid JWT
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: Authenticated but lacking the required role or ownership
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: Pill does not exist (or existence is hidden from the caller)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: Slug already in use, lifecycle violation, or concurrent modification
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
