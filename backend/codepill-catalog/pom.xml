@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.codepill</groupId>
+    <artifactId>codepill-backend</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>codepill-catalog</artifactId>
+  <packaging>pom</packaging>
+  <name>CodePill :: Catalog Service</name>
+  <description>Pills, courses, tracks, authoring (ARCHITECTURE.md §3.2)</description>
+
+  <modules>
+    <module>domain</module>
+    <module>application</module>
+    <module>adapters/in/web</module>
+    <module>adapters/out/persistence</module>
+    <module>adapters/out/cache</module>
+    <module>bootstrap</module>
+  </modules>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.codepill</groupId>
+        <artifactId>codepill-catalog-domain</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.codepill</groupId>
+        <artifactId>codepill-catalog-application</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.codepill</groupId>
+        <artifactId>codepill-catalog-web</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.codepill</groupId>
+        <artifactId>codepill-catalog-persistence</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.codepill</groupId>
+        <artifactId>codepill-catalog-cache</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>
