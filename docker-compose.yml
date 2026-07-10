@@ -1,0 +1,244 @@
+# CodePill — local development infrastructure
+#
+# Topology: single bridge network `codepill-net`. Only the host ports listed
+# under `ports:` are published; everything else is container-to-container.
+# Spring services run on the host during development and reach this stack via
+# localhost; Prometheus scrapes them back via host.docker.internal.
+#
+# Usage:
+#   docker compose up -d                     # full stack, migrations auto-applied
+#   docker compose --profile seed up db-seed # load ~100k pills for read-load testing
+#
+# All credentials below are local-development defaults (overridable via .env,
+# see .env.example). Never reuse them outside `local`.
+
+name: codepill
+
+networks:
+  codepill-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:
+
+services:
+  # ── Data ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: codepill-postgres
+    restart: unless-stopped
+    # pg_stat_statements: slow-query visibility per OBSERVABILITY.md §4.2
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=200
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-codepill}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      POSTGRES_DB: codepill
+    ports:
+      # host 5433: 5432 is taken by another local project (etl_viman_postgres_local)
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./ops/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codepill} -d codepill"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [codepill-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: codepill-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:-codepill-local}
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-codepill-local} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [codepill-net]
+
+  # ── Schema migrations (Flyway, one runner per service database) ────────
+  flyway-identity:
+    image: flyway/flyway:11-alpine
+    container_name: codepill-flyway-identity
+    command: ["-connectRetries=30", "migrate"]
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/codepill_identity
+      FLYWAY_USER: ${POSTGRES_USER:-codepill}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+    volumes:
+      - ./ops/db/migrations/identity:/flyway/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [codepill-net]
+
+  flyway-catalog:
+    image: flyway/flyway:11-alpine
+    container_name: codepill-flyway-catalog
+    command: ["-connectRetries=30", "migrate"]
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/codepill_catalog
+      FLYWAY_USER: ${POSTGRES_USER:-codepill}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+    volumes:
+      # catalog migrations live in the service module (ARCHITECTURE.md §3);
+      # same files, checksum-identical to the former ops/db/migrations/catalog
+      - ./backend/codepill-catalog/adapters/out/persistence/src/main/resources/db/migration:/flyway/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [codepill-net]
+
+  # High-volume seed for read-path/index validation. Opt-in:
+  #   docker compose --profile seed up db-seed
+  db-seed:
+    image: postgres:17-alpine
+    container_name: codepill-db-seed
+    profiles: [seed]
+    entrypoint: ["psql"]
+    command: ["-v", "ON_ERROR_STOP=1", "-f", "/seed/seed_catalog_high_volume.sql"]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: codepill_catalog
+      PGUSER: ${POSTGRES_USER:-codepill}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+    volumes:
+      - ./ops/db/seed:/seed:ro
+    depends_on:
+      flyway-catalog:
+        condition: service_completed_successfully
+    networks: [codepill-net]
+
+  # ── Identity Provider (SECURITY.md §2) ──────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    container_name: codepill-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-codepill}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    ports:
+      - "8180:8080"   # OIDC endpoints — issuer: http://localhost:8180/realms/codepill
+      - "8181:9000"   # management: /health, /metrics
+    volumes:
+      - ./ops/keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # ubi-micro image has no curl; bash /dev/tcp against the management port
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -en 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && timeout 3 cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks: [codepill-net]
+
+  # ── Observability (OBSERVABILITY.md: OTel → Loki/Prometheus/Tempo) ─────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.126.0
+    container_name: codepill-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC (apps on host export here)
+      - "4318:4318"   # OTLP HTTP (browser SDK exports here)
+    volumes:
+      - ./ops/observability/otel-collector/config.yml:/etc/otelcol/config.yml:ro
+    depends_on: [loki, tempo]
+    networks: [codepill-net]
+
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    container_name: codepill-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [codepill-net]
+
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: codepill-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./ops/observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    networks: [codepill-net]
+
+  tempo:
+    image: grafana/tempo:2.7.1
+    container_name: codepill-tempo
+    restart: unless-stopped
+    # local-only: run as root so the named volume is writable without an init container
+    user: "0"
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports:
+      - "3200:3200"   # Tempo query API (Grafana datasource)
+    volumes:
+      - ./ops/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks: [codepill-net]
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    container_name: codepill-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on: [prometheus, loki, tempo]
+    networks: [codepill-net]
