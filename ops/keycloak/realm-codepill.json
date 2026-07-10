@@ -1,0 +1,159 @@
+{
+  "realm": "codepill",
+  "enabled": true,
+  "displayName": "CodePill (local)",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "name": "LEARNER",
+        "description": "Consumes pills, tracks own progress. Default role."
+      },
+      {
+        "name": "AUTHOR",
+        "description": "Creates and edits own pills/courses. Includes LEARNER.",
+        "composite": true,
+        "composites": { "realm": ["LEARNER"] }
+      },
+      {
+        "name": "CURATOR",
+        "description": "Reviews and publishes any content. Includes AUTHOR.",
+        "composite": true,
+        "composites": { "realm": ["AUTHOR"] }
+      },
+      {
+        "name": "ADMIN",
+        "description": "User management, platform configuration. Includes CURATOR.",
+        "composite": true,
+        "composites": { "realm": ["CURATOR"] }
+      }
+    ]
+  },
+  "clientScopes": [
+    {
+      "name": "codepill-api",
+      "description": "Audience + flat roles claim for CodePill resource servers",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "codepill-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "codepill-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "codepill-web",
+      "name": "CodePill SPA",
+      "description": "React SPA — Authorization Code + PKCE only (SECURITY.md §2.1)",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:5173",
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "defaultClientScopes": ["profile", "email", "roles", "codepill-api"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "codepill-service",
+      "name": "CodePill service-to-service",
+      "description": "Client Credentials flow for machine clients (local secret only)",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "codepill-local-service-secret",
+      "defaultClientScopes": ["codepill-api"],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "dev-learner",
+      "enabled": true,
+      "email": "learner@codepill.local",
+      "emailVerified": true,
+      "firstName": "Lea",
+      "lastName": "Learner",
+      "credentials": [{ "type": "password", "value": "codepill-local", "temporary": false }],
+      "realmRoles": ["LEARNER"]
+    },
+    {
+      "username": "dev-author",
+      "enabled": true,
+      "email": "author@codepill.local",
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Author",
+      "credentials": [{ "type": "password", "value": "codepill-local", "temporary": false }],
+      "realmRoles": ["AUTHOR"]
+    },
+    {
+      "username": "dev-curator",
+      "enabled": true,
+      "email": "curator@codepill.local",
+      "emailVerified": true,
+      "firstName": "Cara",
+      "lastName": "Curator",
+      "credentials": [{ "type": "password", "value": "codepill-local", "temporary": false }],
+      "realmRoles": ["CURATOR"]
+    },
+    {
+      "username": "dev-admin",
+      "enabled": true,
+      "email": "admin@codepill.local",
+      "emailVerified": true,
+      "firstName": "Adi",
+      "lastName": "Admin",
+      "credentials": [{ "type": "password", "value": "codepill-local", "temporary": false }],
+      "realmRoles": ["ADMIN"]
+    }
+  ]
+}
