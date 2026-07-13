@@ -22,7 +22,8 @@
 - **Frontend:** ✅ `codepill-web` SPA under `/frontend` (React 19 + TypeScript strict, Vite 8, pnpm, Tailwind 4). Clean Architecture layers per `ARCHITECTURE.md` §4 enforced by `eslint-plugin-boundaries`; OAuth2 Code+PKCE via `react-oidc-context` (tokens in memory); TanStack Query 5 for all server state; API types generated from the OpenAPI contract; OTel browser tracing → collector `:4318`. Dev server on **5173** (Vite proxy `/api` → `localhost:8080`). See the 2026-07-10 entry for structure and decisions.
 - **CI/CD:** ✅ GitHub Actions (`.github/workflows/main.yml`) on push/PR to `main` + nightly + manual. Jobs: **backend** (`mvnw verify`: JUnit + Testcontainers ITs + ArchUnit + JaCoCo ≥85% gate, then SonarQube `codepill-backend` with blocking quality gate), **frontend** (ESLint boundaries + Prettier + Vitest ≥85% gate + `tsc`/build, then SonarQube `codepill-frontend`), **security** (gitleaks full-history, `pnpm audit --audit-level critical`, Trivy CRITICAL, OWASP Dependency-Check CVSS≥9 when `NVD_API_KEY` set), **e2e** (Playwright vs ephemeral compose stack). Sonar/OWASP steps self-skip until the `SONAR_HOST_URL`/`SONAR_TOKEN`/`NVD_API_KEY` repo secrets exist; every coverage and vulnerability gate fails the build unconditionally.
 - **E2E:** ✅ Playwright suite in `/e2e` (6 journeys, mobile viewport): OAuth2 Code+PKCE login/logout via Keycloak, role-gated authoring nav, create-pill form (+client-side contract validation), feed infinite scroll with API-seeded data (author drafts → curator publishes). See the 2026-07-10 CI entry for how to run locally.
-- **Test coverage:** ≥85% line+branch per module enforced at build; domain/application near 100%. Backend: 125 unit tests + 17 integration tests (Testcontainers PostgreSQL/Redis) + 4 ArchUnit rules. Frontend: 117 Vitest tests, 99% statements / 90% branches / 100% functions (85% gate wired in `vite.config.ts`). All green.
+- **Test coverage:** ≥85% line+branch per module enforced at build; domain/application near 100%. Backend: 133 unit tests + 20 integration tests (Testcontainers PostgreSQL/Redis) + 6 ArchUnit rules. Frontend: 134 Vitest tests, 99% statements / 91% branches / 100% functions (85% gate wired in `vite.config.ts`). All green.
+- **Hardening (2026-07-11 adversarial review):** Redis 250ms fail-fast timeouts + afterCommit cache eviction; Hikari sized w/ leak detection + 5s `statement_timeout`; JWKS decoder with 2s HTTP timeouts; Bucket4j rate limiting on writes; 64k pill-content cap; `page ≤ 500`; prometheus scrape auth-gated outside local; fail-closed `prod` profile; per-service Postgres roles; loopback-only compose ports; SHA-pinned third-party CI actions; `codepill.*` span attributes on every use case. Details in the 2026-07-11 log entry.
 - **Known risks / open decisions:**
   - IdP choice defaulted to Keycloak (`SECURITY.md`) — revisit via ADR if managed IdP preferred.
   - Monorepo module cut defined in `ARCHITECTURE.md` §3.2 — extraction to independent deployables deferred.
@@ -55,7 +56,7 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 
 | Container | Image | Host port → container | Purpose |
 |---|---|---|---|
-| `codepill-postgres` | `postgres:17-alpine` | `5433 → 5432` | Primary DB. Databases: `codepill_identity`, `codepill_catalog`, `keycloak`. (Host 5433 because 5432 is taken by another local project.) |
+| `codepill-postgres` | `postgres:17-alpine` | `5433 → 5432` | Primary DB. Databases: `codepill_identity`, `codepill_catalog`, `keycloak` — each owned by its own least-privilege role (`*_svc`, cross-DB CONNECT revoked). All host ports on this stack bind `127.0.0.1` only. (Host 5433 because 5432 is taken by another local project.) |
 | `codepill-redis` | `redis:7-alpine` | `6379 → 6379` | Cache (LRU, AOF persistence, password-protected). |
 | `codepill-keycloak` | `quay.io/keycloak/keycloak:26.2` | `8180 → 8080` | OIDC IdP. Issuer: `http://localhost:8180/realms/codepill`. Realm auto-imported from `ops/keycloak/realm-codepill.json`. |
 | `codepill-keycloak` (mgmt) | — | `8181 → 9000` | Keycloak health (`/health/*`) and metrics (`/metrics`). |
@@ -94,6 +95,63 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 ---
 
 ## Log (newest first)
+
+## [2026-07-11] Adversarial Review Findings & Fixes
+- **Agent/Author:** Claude (Principal Security & Reliability Engineer session)
+- **Task:** Adversarial production-readiness audit of `/backend`, `/frontend`, `/ops`, and CI against all `/docs/standards`, followed by implementation of the fixes (resiliency, security hardening, query/cache correctness) and this record.
+- **Changes:** See the full findings table below. Two deliberate deviations are recorded inline there (in-service rate limiting until a gateway exists; bounded offset pagination retained in the v1 contract) — the team decided against a separate ADR directory, so this file is the decision record.
+- **Standards compliance:** All fixes TDD'd (failing tests written first for the domain cap, deferred eviction, rate limiter, span tags, page cap); coverage gates unchanged at ≥85% and green (backend per-module JaCoCo; frontend 99.2% stmts / 91.0% branches); new code paths carry metrics (`codepill_api_rate_limited_total`), structured logs, and span attributes; no new anonymous surface (one removed outside local); security matrix extended (`HardenedProfileIT`: prometheus 401, 429 + Retry-After).
+- **Tests:** Backend `mvnw verify` green — 133 unit (+8) / 20 IT (+3) / 6 ArchUnit (+1). Frontend 134 Vitest tests (+17) green, lint/typecheck/build clean. E2E 6/6 green (20.5s) against the hardened stack — and the suite caught a login-breaking flaw in one audit recommendation before it shipped (see F-16).
+- **Follow-ups / debt:** listed at the end of the findings section below.
+
+### Adversarial Review Findings & Fixes
+
+**Verdict before fixes:** architecture, RBAC layering, log/metric formats and test discipline were genuinely solid; the production-readiness gaps were concentrated in *resiliency* (no timeouts anywhere), *cache/transaction interaction*, *input bounds*, and *infra defaults that bleed into non-local environments*.
+
+**Resiliency & data layer (backend)**
+- **F-01 · CRITICAL — A degraded Redis could take down the DB path.** `@Transactional` use cases performed cache round-trips while holding the DB connection, Lettuce had its 60s default command timeout, and Hikari ran at default size 10 with no leak detection — a hung Redis would pin every connection. Fixed threefold: `spring.data.redis.timeout/connect-timeout: 250ms` (fail-open now fails *fast*); pool sized explicitly (`maximum-pool-size` 20, `connection-timeout` 5s, `leak-detection-threshold` 10s); and evictions moved out of the transaction (F-02).
+- **F-02 · HIGH — Stale-cache window: evictions ran *before* commit.** A concurrent reader could repopulate the cache with pre-commit data that then lived a full TTL. `RedisPillCacheAdapter.evictPill/evictPublishedPages` now defer via `TransactionSynchronization.afterCommit` when a transaction is active (and are discarded on rollback — nothing changed); unit-tested for defer, fire and rollback paths.
+- **F-03 · HIGH — No statement timeout.** Runaway queries (deep OFFSET, lock waits) could hold connections forever. Postgres `statement_timeout=5000` is now set via Hikari datasource properties.
+- **F-04 · HIGH — JWKS fetches to Keycloak had no HTTP timeouts** (the service's only external HTTP call, on the auth hot path). Replaced the auto-configured decoder with a `SupplierJwtDecoder`-wrapped `NimbusJwtDecoder` using 2s connect/read timeouts, preserving lazy init (boots without the IdP) and issuer+audience validation.
+- **F-05 · MEDIUM — Unbounded OFFSET + per-request COUNT on the feed** (100k-row table; the purpose-built keyset index can't help OFFSET). Bounded: `page ≤ 500` enforced at web adapter (`@Min/@Max` → 400 via new `HandlerMethodValidationException` handler), in the use case, and in the OpenAPI contract. **Decision:** cursor/keyset pagination deferred to a future `/api/v2` — removing `totalPages` is a breaking change and ARCHITECTURE.md §5 requires a new API version for that.
+
+**Security (backend + infra)**
+- **F-06 · HIGH — Unbounded pill `content` JSON** (memory/DoS + cache-amplification vector; the DTO javadoc's "domain invariants re-validate depth" claim was false). `PillContent` now enforces `MAX_LENGTH` 64k as a domain invariant covering create and update paths; javadoc corrected.
+- **F-07 · HIGH — No rate limiting on writes** (SECURITY.md §4.6 unimplemented; no gateway exists). Added `WriteRateLimitFilter` (Bucket4j token bucket per validated JWT `sub`, Caffeine-bounded store, 30 writes/min default, RFC 9457 `429` + `Retry-After`, `codepill_api_rate_limited_total` metric, structured WARN). Runs after the security chain; env-tunable via `codepill.rate-limit.*`. **Decision:** the standard places this at the gateway, but none exists yet — enforced in-service until then (per-instance buckets; move to a distributed store when scaling out).
+- **F-08 · MEDIUM — `/actuator/prometheus` anonymous everywhere** — a self-granted exception to the SECURITY.md §3.3 allowlist, "network-restricted" only by comment. Now gated by `codepill.security.prometheus-public` (default **false**; `true` only in the local config; prod profile pins false). `HardenedProfileIT` proves the locked posture.
+- **F-09 · MEDIUM — Prod could silently inherit local credentials/issuer.** `application.yml` fallbacks (`codepill-local`, localhost issuer) applied in any environment. New `application-prod.yml` uses no-default placeholders — a missing env var now aborts startup (fail closed) — and sets 10% trace sampling per OBSERVABILITY.md §2.
+- **F-10 · HIGH — One Postgres role owned every database** (identity, catalog, *and* Keycloak's user store) — a leaked catalog credential meant full lateral movement. Init script now creates `codepill_identity_svc`/`codepill_catalog_svc`/`keycloak_svc`, each owning only its DB with `REVOKE CONNECT … FROM PUBLIC` (verified: cross-DB connect denied). Compose, `.env.example` and `application.yml` updated; the running local volume was migrated **additively** (roles + grants, no data loss). Fresh stacks get it from init; existing external stacks need the same one-time grant script.
+- **F-11 · MEDIUM — gitleaks was blinded exactly where a secret would land**: a whole-file allowlist on `realm-codepill.json` (which ships the committed local `codepill-service` client secret). Allowlist narrowed to the fixture literal only — a real secret pasted into the realm file is now caught. Realm also pins `sslRequired: external`.
+- **F-12 · MEDIUM — Every compose port bound 0.0.0.0** with fixture passwords — Postgres/Redis/Keycloak/Grafana reachable from any LAN. All published ports now bind `127.0.0.1`.
+- **F-13 · MEDIUM — Third-party GitHub Actions pinned to mutable tags** (supply-chain vector with `SONAR_TOKEN`/`NVD_API_KEY` in scope). `pnpm/action-setup`, `gitleaks/gitleaks-action`, `sonarsource/sonarqube-scan-action` now pinned to commit SHAs.
+
+**Observability compliance (backend)**
+- **F-14 · HIGH — `codepill.*` span attributes missing entirely** (OBSERVABILITY.md §2 rule 4): traces carried no pill/feed IDs. Added `SpanTags` helper (application layer, no-op without an active observation) + `ObservationRegistry` wiring; every use case now tags `codepill.pill.id`/`codepill.pill.type`/`codepill.feed.page|size` on its `@Observed` span.
+- **F-15 · LOW — `service.name` resource attribute implicit** → now explicit in `application.yml`. Also: new ArchUnit rule pins `@Transactional` to `..application.usecase..` (the standard's rule 6 was previously unenforced).
+
+**Frontend**
+- **F-16 · HIGH — audit recommendation REFUTED by E2E:** the auditor flagged PKCE state in `localStorage` and recommended in-memory storage. In-memory `stateStore` **breaks every login** (the code flow's full-page redirect wipes the JS heap → "No matching state found"). Final fix: `stateStore` pinned to **sessionStorage** (tab-scoped, cleared on close, one-time entries) — off persistent disk without breaking the redirect. Tokens remain in-memory (`userStore`) per SECURITY.md §2.2. E2E login journeys prove it.
+- **F-17 · HIGH — Infinite feed grew without bound** (`useInfiniteQuery` without `maxPages`; all pages rendered). Capped at 5 pages with `getPreviousPageParam` for bidirectional paging; `FeedSentinel` observer no longer recreated every render and prefetches via `rootMargin: 200px`.
+- **F-18 · MEDIUM — Query cache survived sign-out** (user A's data visible to a subsequent session on the same tab). `signOut` now `queryClient.clear()`s before the end-session redirect.
+- **F-19 · MEDIUM — No fetch timeout; mutations unabortable** (a black-holed request pended forever, pinning the UI). All requests now race a 15s `AbortSignal.timeout`, merged with caller signals via `AbortSignal.any`.
+- **F-20 · MEDIUM — Prod builds silently shipped `localhost` fallbacks** for the IdP and OTLP collector. `env.ts` now throws at boot in prod builds when `VITE_OIDC_AUTHORITY`/`VITE_OTLP_TRACES_URL` are unset (E2E preview configures them explicitly — that failure mode was itself caught by the E2E suite). Browser tracing gains env-driven ratio sampling (`VITE_TRACE_SAMPLING`) and a `pagehide` `forceFlush` so tab-close spans aren't lost.
+
+**Infra reliability**
+- **F-21 · LOW — Observability tier had no healthchecks/ordering**: otel-collector could start before Loki/Tempo accepted writes (early telemetry dropped). Added `wget`-based healthchecks (verified live: all healthy) and `service_healthy` conditions for collector and Grafana.
+
+**Explicitly reviewed and left as-is (with reasoning)**
+- Scanner thresholds (Trivy CRITICAL, `pnpm audit` critical, DC CVSS≥9) match SECURITY.md §4.5's "critical CVEs" wording — tightening to HIGH is a standards change, not a compliance fix.
+- No N+1 queries exist (the aggregate is a single flat table, zero JPA relationships) — verified, not assumed.
+- Feed over-fetches `content` into cache/responses — real, but fixing it cleanly belongs to the v2 cursor contract since `content` is required on `Pill` in the v1 contract.
+- Sentry (OBSERVABILITY.md §3.2) remains deferred — needs a Boot-4-validated starter + DSN; unchanged known risk.
+- `logstash-logback-encoder` compile-dep in the application layer (for `kv()`) — accepted annotation-facade-style compromise, flagged for a future logging abstraction.
+
+**Follow-ups / debt from this review**
+- `/api/v2` cursor pagination — also drops the per-request COUNT and lets the feed omit `content`.
+- Distributed rate-limit store when scaling past one instance.
+- Existing non-local stacks (if any ever created) need the one-time per-service-role grant script from F-10.
+- Backend Spotless/Error Prone lint stage (pre-existing debt, unchanged).
+- Consider a standards PR: scanner thresholds to HIGH, and documenting the annotation-facade exception in ARCHITECTURE.md.
 
 ## [2026-07-10] CI pipeline (GitHub Actions) + Playwright E2E suite + two realm-import bug fixes
 - **Agent/Author:** Claude (DevSecOps Engineer session)
