@@ -10,8 +10,15 @@ spring:
       enabled: true          # Java 25 virtual threads for blocking I/O (ARCHITECTURE.md §2)
   datasource:
     url: ${CODEPILL_CATALOG_DB_URL:jdbc:postgresql://localhost:5433/codepill_catalog}
-    username: ${CODEPILL_DB_USER:codepill}
+    # per-service role — owns codepill_catalog only (least privilege, SECURITY.md §4)
+    username: ${CODEPILL_DB_USER:codepill_catalog_svc}
     password: ${CODEPILL_DB_PASSWORD:codepill-local}
+    hikari:
+      maximum-pool-size: ${CODEPILL_DB_POOL_MAX:20}
+      connection-timeout: 5000
+      leak-detection-threshold: 10000
+      data-source-properties:
+        options: -c statement_timeout=5000
   jpa:
     hibernate:
       ddl-auto: validate     # schema is owned by Flyway, Hibernate only validates
@@ -23,6 +30,9 @@ spring:
       host: ${CODEPILL_REDIS_HOST:localhost}
       port: ${CODEPILL_REDIS_PORT:6379}
       password: ${CODEPILL_REDIS_PASSWORD:codepill-local}
+      # short timeouts so the fail-open cache degrades fast instead of stalling
+      connect-timeout: 250ms
+      timeout: 250ms
   security:
     oauth2:
       resourceserver:
@@ -40,6 +50,14 @@ codepill:
   cache:
     pill-ttl: ${CODEPILL_CACHE_PILL_TTL:10m}
     page-ttl: ${CODEPILL_CACHE_PAGE_TTL:60s}
+  security:
+    # anonymous scrape is a local-stack convenience; prod profile keeps it false
+    prometheus-public: true
+  rate-limit:
+    # SECURITY.md §4.6 — per-caller token bucket on write endpoints
+    enabled: true
+    capacity: ${CODEPILL_RATE_LIMIT_CAPACITY:30}
+    refill-period: ${CODEPILL_RATE_LIMIT_REFILL_PERIOD:1m}
 
 # OBSERVABILITY.md §4.1 — Actuator baseline
 management:
@@ -68,5 +86,6 @@ management:
           # spans → OTel Collector → Tempo; setting the endpoint activates the exporter (Boot 4)
           endpoint: ${CODEPILL_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
     resource-attributes:
+      service.name: ${spring.application.name}
       deployment.environment: ${CODEPILL_ENV:local}
       service.version: ${CODEPILL_SERVICE_VERSION:0.1.0-SNAPSHOT}

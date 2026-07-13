@@ -2,6 +2,7 @@ package com.codepill.catalog.application.usecase;
 
 import com.codepill.catalog.application.PillNotFoundException;
 import com.codepill.catalog.application.SlugAlreadyInUseException;
+import com.codepill.catalog.application.observability.SpanTags;
 import com.codepill.catalog.application.port.out.LoadPillPort;
 import com.codepill.catalog.application.port.out.PillCachePort;
 import com.codepill.catalog.application.port.out.SavePillPort;
@@ -14,6 +15,7 @@ import com.codepill.catalog.domain.PillType;
 import com.codepill.catalog.domain.Slug;
 import com.codepill.catalog.domain.Summary;
 import com.codepill.catalog.domain.Title;
+import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.annotation.Observed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,12 +38,19 @@ public class UpdatePillUseCase {
     private final LoadPillPort loadPillPort;
     private final SavePillPort savePillPort;
     private final PillCachePort pillCachePort;
+    private final ObservationRegistry observations;
 
     public UpdatePillUseCase(LoadPillPort loadPillPort, SavePillPort savePillPort,
                              PillCachePort pillCachePort) {
+        this(loadPillPort, savePillPort, pillCachePort, ObservationRegistry.NOOP);
+    }
+
+    public UpdatePillUseCase(LoadPillPort loadPillPort, SavePillPort savePillPort,
+                             PillCachePort pillCachePort, ObservationRegistry observations) {
         this.loadPillPort = loadPillPort;
         this.savePillPort = savePillPort;
         this.pillCachePort = pillCachePort;
+        this.observations = observations;
     }
 
     @PreAuthorize("hasRole('AUTHOR')")
@@ -49,6 +58,7 @@ public class UpdatePillUseCase {
     @Observed(name = "usecase", contextualName = "update-pill")
     public Pill update(UpdatePillCommand command, Caller caller) {
         var id = PillId.of(command.pillId());
+        SpanTags.put(observations, "codepill.pill.id", id.value());
         var pill = loadPillPort.loadById(id)
                 .orElseThrow(() -> new PillNotFoundException(id));
 

@@ -6,6 +6,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
@@ -68,6 +69,19 @@ class ArchitectureTest {
                 .should().dependOnClassesThat()
                 .resideInAnyPackage("..catalog.adapter..", "..catalog.bootstrap..")
                 .because("the application layer depends only on domain and its own ports")
+                .check(classes);
+    }
+
+    @Test
+    void transactionsBeginAndEndInUseCasesOnly() {
+        methods().that()
+                .areAnnotatedWith(org.springframework.transaction.annotation.Transactional.class)
+                .should().beDeclaredInClassesThat().resideInAPackage("..application.usecase..")
+                .because("transactions begin and end in the use case, never in controllers or repositories (ARCHITECTURE.md §3.1 rule 6)")
+                .check(classes);
+        noClasses().that().resideOutsideOfPackage("..application.usecase..")
+                .should().beAnnotatedWith(org.springframework.transaction.annotation.Transactional.class)
+                .because("class-level @Transactional outside use cases would hide the transaction boundary")
                 .check(classes);
     }
 }

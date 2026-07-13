@@ -29,6 +29,11 @@
       <artifactId>spring-data-redis</artifactId>
     </dependency>
     <dependency>
+      <!-- evictions must run afterCommit, never inside the transaction -->
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-tx</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
     </dependency>

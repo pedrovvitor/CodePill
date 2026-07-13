@@ -4,3 +4,9 @@ management:
   tracing:
     sampling:
       probability: 0.0
+
+codepill:
+  rate-limit:
+    # off for the functional suite (it fires many writes from one subject);
+    # enforcement itself is covered by WriteRateLimitFilterTest and HardenedProfileIT
+    enabled: false

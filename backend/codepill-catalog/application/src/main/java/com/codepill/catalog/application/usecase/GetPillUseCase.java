@@ -1,11 +1,13 @@
 package com.codepill.catalog.application.usecase;
 
 import com.codepill.catalog.application.PillNotFoundException;
+import com.codepill.catalog.application.observability.SpanTags;
 import com.codepill.catalog.application.port.out.LoadPillPort;
 import com.codepill.catalog.application.port.out.PillCachePort;
 import com.codepill.catalog.application.security.Caller;
 import com.codepill.catalog.domain.Pill;
 import com.codepill.catalog.domain.PillId;
+import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.annotation.Observed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,16 +28,24 @@ public class GetPillUseCase {
 
     private final LoadPillPort loadPillPort;
     private final PillCachePort pillCachePort;
+    private final ObservationRegistry observations;
 
     public GetPillUseCase(LoadPillPort loadPillPort, PillCachePort pillCachePort) {
+        this(loadPillPort, pillCachePort, ObservationRegistry.NOOP);
+    }
+
+    public GetPillUseCase(LoadPillPort loadPillPort, PillCachePort pillCachePort,
+                          ObservationRegistry observations) {
         this.loadPillPort = loadPillPort;
         this.pillCachePort = pillCachePort;
+        this.observations = observations;
     }
 
     @PreAuthorize("hasRole('LEARNER')")
     @Transactional(readOnly = true)
     @Observed(name = "usecase", contextualName = "get-pill")
     public Pill get(PillId id, Caller caller) {
+        SpanTags.put(observations, "codepill.pill.id", id.value());
         var cached = pillCachePort.getPill(id);
         if (cached.isPresent()) {
             log.debug("pill cache hit", kv("pill_id", id.value()));

@@ -11,6 +11,8 @@ import org.mockito.quality.Strictness;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -126,6 +128,53 @@ class RedisPillCacheAdapterTest {
         adapter.evictPublishedPages();
 
         verify(values).increment(RedisPillCacheAdapter.PAGE_VERSION_KEY);
+    }
+
+    @Test
+    void shouldDeferPillEviction_untilAfterCommit_whenTransactionActive() {
+        var id = PillId.newId();
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            adapter.evictPill(id);
+            verify(redis, org.mockito.Mockito.never()).delete(anyString());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            verify(redis).delete(RedisPillCacheAdapter.PILL_KEY_PREFIX + id.value());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void shouldDeferPageInvalidation_untilAfterCommit_whenTransactionActive() {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            adapter.evictPublishedPages();
+            verify(values, org.mockito.Mockito.never()).increment(anyString());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            verify(values).increment(RedisPillCacheAdapter.PAGE_VERSION_KEY);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void shouldNotEvict_whenTransactionRollsBack() {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            adapter.evictPill(PillId.newId());
+            adapter.evictPublishedPages();
+            // rollback: registered synchronizations are discarded, afterCommit never runs
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(redis, org.mockito.Mockito.never()).delete(anyString());
+        verify(values, org.mockito.Mockito.never()).increment(anyString());
     }
 
     @Test

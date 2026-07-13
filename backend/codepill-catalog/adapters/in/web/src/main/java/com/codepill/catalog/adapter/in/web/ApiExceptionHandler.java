@@ -15,6 +15,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.LinkedHashMap;
@@ -71,6 +72,13 @@ class ApiExceptionHandler {
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
     ProblemDetail handleUnreadable(Exception e) {
         return problem(HttpStatus.BAD_REQUEST, "Malformed request", "request could not be parsed");
+    }
+
+    /** Constraint violations on request parameters (@Min/@Max on page/size). */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    ProblemDetail handleParameterValidation(HandlerMethodValidationException e) {
+        return problem(HttpStatus.BAD_REQUEST, "Validation failed",
+                "request parameters are invalid");
     }
 
     @ExceptionHandler(AccessDeniedException.class)

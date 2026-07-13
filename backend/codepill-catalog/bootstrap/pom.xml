@@ -98,6 +98,15 @@
       <groupId>net.logstash.logback</groupId>
       <artifactId>logstash-logback-encoder</artifactId>
     </dependency>
+    <!-- SECURITY.md §4.6 — rate limiting on write endpoints; Caffeine bounds the bucket store -->
+    <dependency>
+      <groupId>com.bucket4j</groupId>
+      <artifactId>bucket4j-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
     <!-- Boot 4: Flyway auto-configuration lives in its own starter -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

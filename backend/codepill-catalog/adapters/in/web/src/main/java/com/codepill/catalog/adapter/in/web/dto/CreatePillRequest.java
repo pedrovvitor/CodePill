@@ -13,7 +13,7 @@ import java.util.Map;
 /**
  * Body of {@code POST /api/v1/pills}. {@code content} is the pill body as a
  * JSON object — binding it as a map guarantees well-formed JSON at the edge
- * (SECURITY.md §4.2 input validation); domain invariants re-validate depth.
+ * (SECURITY.md §4.2); the domain caps its serialized size.
  */
 public record CreatePillRequest(
         @NotBlank @Size(max = 160) String title,

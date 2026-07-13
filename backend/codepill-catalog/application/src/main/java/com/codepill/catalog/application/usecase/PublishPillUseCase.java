@@ -2,12 +2,14 @@ package com.codepill.catalog.application.usecase;
 
 import com.codepill.catalog.application.PillNotFoundException;
 import com.codepill.catalog.application.metrics.CatalogMetrics;
+import com.codepill.catalog.application.observability.SpanTags;
 import com.codepill.catalog.application.port.out.LoadPillPort;
 import com.codepill.catalog.application.port.out.PillCachePort;
 import com.codepill.catalog.application.port.out.SavePillPort;
 import com.codepill.catalog.application.security.Caller;
 import com.codepill.catalog.domain.Pill;
 import com.codepill.catalog.domain.PillId;
+import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.annotation.Observed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,20 +34,29 @@ public class PublishPillUseCase {
     private final PillCachePort pillCachePort;
     private final CatalogMetrics metrics;
     private final Clock clock;
+    private final ObservationRegistry observations;
 
     public PublishPillUseCase(LoadPillPort loadPillPort, SavePillPort savePillPort,
                               PillCachePort pillCachePort, CatalogMetrics metrics, Clock clock) {
+        this(loadPillPort, savePillPort, pillCachePort, metrics, clock, ObservationRegistry.NOOP);
+    }
+
+    public PublishPillUseCase(LoadPillPort loadPillPort, SavePillPort savePillPort,
+                              PillCachePort pillCachePort, CatalogMetrics metrics, Clock clock,
+                              ObservationRegistry observations) {
         this.loadPillPort = loadPillPort;
         this.savePillPort = savePillPort;
         this.pillCachePort = pillCachePort;
         this.metrics = metrics;
         this.clock = clock;
+        this.observations = observations;
     }
 
     @PreAuthorize("hasRole('CURATOR')")
     @Transactional
     @Observed(name = "usecase", contextualName = "publish-pill")
     public Pill publish(PillId id, Caller caller) {
+        SpanTags.put(observations, "codepill.pill.id", id.value());
         var pill = loadPillPort.loadById(id)
                 .orElseThrow(() -> new PillNotFoundException(id));
 

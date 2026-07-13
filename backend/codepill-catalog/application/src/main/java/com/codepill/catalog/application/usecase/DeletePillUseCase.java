@@ -1,11 +1,13 @@
 package com.codepill.catalog.application.usecase;
 
 import com.codepill.catalog.application.PillNotFoundException;
+import com.codepill.catalog.application.observability.SpanTags;
 import com.codepill.catalog.application.port.out.DeletePillPort;
 import com.codepill.catalog.application.port.out.LoadPillPort;
 import com.codepill.catalog.application.port.out.PillCachePort;
 import com.codepill.catalog.application.security.Caller;
 import com.codepill.catalog.domain.PillId;
+import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.annotation.Observed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,18 +29,26 @@ public class DeletePillUseCase {
     private final LoadPillPort loadPillPort;
     private final DeletePillPort deletePillPort;
     private final PillCachePort pillCachePort;
+    private final ObservationRegistry observations;
 
     public DeletePillUseCase(LoadPillPort loadPillPort, DeletePillPort deletePillPort,
                              PillCachePort pillCachePort) {
+        this(loadPillPort, deletePillPort, pillCachePort, ObservationRegistry.NOOP);
+    }
+
+    public DeletePillUseCase(LoadPillPort loadPillPort, DeletePillPort deletePillPort,
+                             PillCachePort pillCachePort, ObservationRegistry observations) {
         this.loadPillPort = loadPillPort;
         this.deletePillPort = deletePillPort;
         this.pillCachePort = pillCachePort;
+        this.observations = observations;
     }
 
     @PreAuthorize("hasRole('AUTHOR')")
     @Transactional
     @Observed(name = "usecase", contextualName = "delete-pill")
     public void delete(PillId id, Caller caller) {
+        SpanTags.put(observations, "codepill.pill.id", id.value());
         var pill = loadPillPort.loadById(id)
                 .orElseThrow(() -> new PillNotFoundException(id));
 

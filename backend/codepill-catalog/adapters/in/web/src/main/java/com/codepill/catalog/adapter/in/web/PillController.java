@@ -13,6 +13,8 @@ import com.codepill.catalog.application.usecase.UpdatePillUseCase;
 import com.codepill.catalog.domain.PillId;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -74,8 +76,11 @@ class PillController {
     }
 
     @GetMapping
-    PagedResponse<PillResponse> list(@RequestParam(defaultValue = "0") int page,
-                                     @RequestParam(defaultValue = "20") int size) {
+    PagedResponse<PillResponse> list(
+            @RequestParam(defaultValue = "0")
+            @Min(0) @Max(ListPillsUseCase.MAX_PAGE) int page,
+            @RequestParam(defaultValue = "20")
+            @Min(1) @Max(ListPillsUseCase.MAX_PAGE_SIZE) int size) {
         var result = listPills.list(page, size);
         return PagedResponse.of(
                 result.pills().stream().map(mapper::toResponse).toList(),

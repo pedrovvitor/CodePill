@@ -10,6 +10,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.Objects;
@@ -79,11 +81,13 @@ public class RedisPillCacheAdapter implements PillCachePort {
 
     @Override
     public void evictPill(PillId id) {
-        try {
-            redis.delete(pillKey(id));
-        } catch (Exception e) {
-            log.warn("pill cache eviction failed", kv("pill_id", id.value()), e);
-        }
+        afterCommitOrNow(() -> {
+            try {
+                redis.delete(pillKey(id));
+            } catch (Exception e) {
+                log.warn("pill cache eviction failed", kv("pill_id", id.value()), e);
+            }
+        });
     }
 
     @Override
@@ -111,10 +115,30 @@ public class RedisPillCacheAdapter implements PillCachePort {
 
     @Override
     public void evictPublishedPages() {
-        try {
-            redis.opsForValue().increment(PAGE_VERSION_KEY);
-        } catch (Exception e) {
-            log.warn("page cache eviction failed", e);
+        afterCommitOrNow(() -> {
+            try {
+                redis.opsForValue().increment(PAGE_VERSION_KEY);
+            } catch (Exception e) {
+                log.warn("page cache eviction failed", e);
+            }
+        });
+    }
+
+    /**
+     * Evictions inside a transaction are deferred to afterCommit: evicting
+     * earlier lets a concurrent reader re-cache the pre-commit row for a full
+     * TTL. On rollback the eviction is discarded.
+     */
+    private static void afterCommitOrNow(Runnable eviction) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    eviction.run();
+                }
+            });
+        } else {
+            eviction.run();
         }
     }
 

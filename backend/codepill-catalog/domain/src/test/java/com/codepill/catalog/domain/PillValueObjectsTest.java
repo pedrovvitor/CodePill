@@ -110,6 +110,23 @@ class PillValueObjectsTest {
         void shouldProvideEmptyDocument() {
             assertThat(PillContent.empty().json()).isEqualTo("{}");
         }
+
+        @Test
+        void shouldRejectContent_exceedingMaxLength() {
+            var oversized = "{\"body\":\"" + "x".repeat(PillContent.MAX_LENGTH) + "\"}";
+
+            assertThatThrownBy(() -> new PillContent(oversized))
+                    .isInstanceOf(DomainValidationException.class)
+                    .hasMessageContaining("content");
+        }
+
+        @Test
+        void shouldAcceptContent_atMaxLength() {
+            var padding = PillContent.MAX_LENGTH - "{\"body\":\"\"}".length();
+            var content = new PillContent("{\"body\":\"" + "x".repeat(padding) + "\"}");
+
+            assertThat(content.json()).hasSize(PillContent.MAX_LENGTH);
+        }
     }
 
     @Nested

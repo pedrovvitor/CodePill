@@ -1,0 +1,31 @@
+# Production profile — fail closed: no-default placeholders abort startup when
+# a variable is missing instead of inheriting local-dev fallbacks.
+spring:
+  datasource:
+    url: ${CODEPILL_CATALOG_DB_URL}
+    username: ${CODEPILL_DB_USER}
+    password: ${CODEPILL_DB_PASSWORD}
+  data:
+    redis:
+      host: ${CODEPILL_REDIS_HOST}
+      password: ${CODEPILL_REDIS_PASSWORD}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${CODEPILL_OIDC_ISSUER}
+
+codepill:
+  env: ${CODEPILL_ENV:prod}
+  security:
+    prometheus-public: false
+
+management:
+  tracing:
+    sampling:
+      probability: ${CODEPILL_TRACE_SAMPLING:0.1}   # OBSERVABILITY.md §2
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${CODEPILL_OTLP_TRACES_ENDPOINT}

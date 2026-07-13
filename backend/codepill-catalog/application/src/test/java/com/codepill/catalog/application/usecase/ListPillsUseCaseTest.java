@@ -33,7 +33,7 @@ class ListPillsUseCaseTest {
     @InjectMocks ListPillsUseCase useCase;
 
     @ParameterizedTest
-    @CsvSource({"-1, 20", "0, 0", "0, 101"})
+    @CsvSource({"-1, 20", "0, 0", "0, 101", "501, 20"})
     void shouldRejectInvalidPaging(int page, int size) {
         assertThatThrownBy(() -> useCase.list(page, size))
                 .isInstanceOf(DomainValidationException.class);

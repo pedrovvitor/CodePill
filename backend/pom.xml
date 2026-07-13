@@ -30,6 +30,7 @@
     <logstash-logback-encoder.version>8.1</logstash-logback-encoder.version>
     <!-- 2.x targets Spring Boot 4 (1.x references removed Boot 3 actuator classes) -->
     <datasource-micrometer.version>2.2.1</datasource-micrometer.version>
+    <bucket4j.version>8.10.1</bucket4j.version>
     <jackson2.version>2.19.1</jackson2.version>
     <jacoco.version>0.8.13</jacoco.version>
     <!-- TESTING_QUALITY.md §2 — CI gate, line and branch -->
@@ -60,6 +61,11 @@
         <groupId>net.ttddyy.observation</groupId>
         <artifactId>datasource-micrometer-spring-boot</artifactId>
         <version>${datasource-micrometer.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.bucket4j</groupId>
+        <artifactId>bucket4j-core</artifactId>
+        <version>${bucket4j.version}</version>
       </dependency>
       <!-- Jackson 2 is used explicitly by adapter modules (cache serialization,
            structured logging); Spring Boot 4 itself runs on Jackson 3. -->
