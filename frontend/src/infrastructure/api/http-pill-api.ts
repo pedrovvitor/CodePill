@@ -14,6 +14,19 @@ interface RequestOptions {
   signal?: AbortSignal
 }
 
+/** No request may hang forever — mutations have no caller signal to cancel them. */
+export const REQUEST_TIMEOUT_MS = 15_000
+
+/**
+ * Combines the caller's signal (query cancellation) with a hard timeout, so
+ * a stalled request rejects (TimeoutError DOMException) instead of pending
+ * forever and TanStack Query can mark the operation as failed.
+ */
+function withTimeout(signal: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
+}
+
 async function readProblem(response: Response): Promise<ProblemDetails | null> {
   const contentType = response.headers.get('content-type') ?? ''
   if (!contentType.includes('json')) return null
@@ -36,7 +49,7 @@ export function createHttpPillApi({ baseUrl, getAccessToken }: HttpPillApiDeps):
       method: options.method ?? 'GET',
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      signal: options.signal ?? null,
+      signal: withTimeout(options.signal),
     })
 
     if (!response.ok) throw new ApiError(response.status, await readProblem(response))

@@ -11,6 +11,7 @@ describe('resolveAppConfig', () => {
       otlpTracesUrl: 'http://localhost:4318/v1/traces',
       deploymentEnv: 'local',
       appVersion: '0.1.0',
+      traceSamplingRatio: 1,
     })
   })
 
@@ -33,5 +34,57 @@ describe('resolveAppConfig', () => {
 
   it('ignores non-string values (import.meta.env booleans)', () => {
     expect(resolveAppConfig({ VITE_API_BASE_URL: true }).apiBaseUrl).toBe('')
+  })
+
+  describe('production fail-fast (no localhost baked into prod builds)', () => {
+    const prodEnv = {
+      PROD: true,
+      VITE_OIDC_AUTHORITY: 'https://id.codepill.dev/realms/codepill',
+      VITE_OTLP_TRACES_URL: 'https://otel.codepill.dev/v1/traces',
+    }
+
+    it('throws naming the variable when VITE_OIDC_AUTHORITY is missing', () => {
+      const env = { PROD: true, VITE_OTLP_TRACES_URL: prodEnv.VITE_OTLP_TRACES_URL }
+      expect(() => resolveAppConfig(env)).toThrow(/VITE_OIDC_AUTHORITY/)
+    })
+
+    it('throws naming the variable when VITE_OTLP_TRACES_URL is missing', () => {
+      const env = { PROD: true, VITE_OIDC_AUTHORITY: prodEnv.VITE_OIDC_AUTHORITY }
+      expect(() => resolveAppConfig(env)).toThrow(/VITE_OTLP_TRACES_URL/)
+    })
+
+    it('resolves normally when all required variables are set', () => {
+      const config = resolveAppConfig(prodEnv)
+      expect(config.oidcAuthority).toBe('https://id.codepill.dev/realms/codepill')
+      expect(config.otlpTracesUrl).toBe('https://otel.codepill.dev/v1/traces')
+    })
+
+    it('keeps localhost defaults for dev builds (PROD false)', () => {
+      const config = resolveAppConfig({ PROD: false })
+      expect(config.oidcAuthority).toBe('http://localhost:8180/realms/codepill')
+      expect(config.otlpTracesUrl).toBe('http://localhost:4318/v1/traces')
+    })
+  })
+
+  describe('VITE_TRACE_SAMPLING', () => {
+    it('defaults to sampling everything', () => {
+      expect(resolveAppConfig({}).traceSamplingRatio).toBe(1)
+    })
+
+    it('parses the ratio as a float', () => {
+      expect(resolveAppConfig({ VITE_TRACE_SAMPLING: '0.25' }).traceSamplingRatio).toBe(0.25)
+    })
+
+    it('clamps values above 1 down to 1', () => {
+      expect(resolveAppConfig({ VITE_TRACE_SAMPLING: '7' }).traceSamplingRatio).toBe(1)
+    })
+
+    it('clamps negative values up to 0', () => {
+      expect(resolveAppConfig({ VITE_TRACE_SAMPLING: '-0.5' }).traceSamplingRatio).toBe(0)
+    })
+
+    it('falls back to the default when the value is not a number', () => {
+      expect(resolveAppConfig({ VITE_TRACE_SAMPLING: 'not-a-ratio' }).traceSamplingRatio).toBe(1)
+    })
   })
 })

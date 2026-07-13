@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { renderHookWithProviders } from '../../test/test-utils'
 import { aPage, aPill, stubPillApi } from '../../test/fixtures'
-import { FEED_PAGE_SIZE, usePillFeed } from './use-pill-feed'
+import { FEED_MAX_PAGES, FEED_PAGE_SIZE, usePillFeed } from './use-pill-feed'
 import { usePillApi } from './use-pill-api'
 
 describe('usePillFeed', () => {
@@ -41,6 +41,30 @@ describe('usePillFeed', () => {
       expect.any(AbortSignal),
     )
     expect(result.current.hasNextPage).toBe(false)
+  })
+
+  it(`keeps at most ${FEED_MAX_PAGES} pages in the cache and can page back to trimmed ones`, async () => {
+    const listPills = vi
+      .fn()
+      .mockImplementation(({ page }: { page: number }) =>
+        Promise.resolve(aPage([aPill({ id: `p${page}` })], page, FEED_MAX_PAGES + 2)),
+      )
+    const api = stubPillApi({ listPills })
+
+    const { result } = renderHookWithProviders(() => usePillFeed(), { api })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    // Load one page past the cap: 1 initial + 5 next = 6 fetched, 5 retained.
+    for (let i = 0; i < FEED_MAX_PAGES; i += 1) {
+      await result.current.fetchNextPage()
+      await waitFor(() => expect(result.current.isFetchingNextPage).toBe(false))
+    }
+
+    expect(result.current.data?.pages).toHaveLength(FEED_MAX_PAGES)
+    // The oldest page (0) was trimmed, so the window starts at page 1 …
+    expect(result.current.data?.pages[0]?.page).toBe(1)
+    // … and remains reachable by paging backwards.
+    expect(result.current.hasPreviousPage).toBe(true)
   })
 
   it('surfaces port failures as query errors', async () => {

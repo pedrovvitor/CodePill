@@ -36,5 +36,13 @@ export default defineConfig({
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    env: {
+      // production builds fail fast when these are unset — configure them
+      // explicitly like any real environment
+      VITE_OIDC_AUTHORITY:
+        process.env.E2E_OIDC_AUTHORITY ?? 'http://localhost:8180/realms/codepill',
+      VITE_OTLP_TRACES_URL:
+        process.env.E2E_OTLP_TRACES_URL ?? 'http://localhost:4318/v1/traces',
+    },
   },
 })

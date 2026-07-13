@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from 'react-oidc-context'
 import { decodeRolesFromAccessToken } from './token-claims'
 
@@ -16,6 +17,7 @@ export interface Session {
 /** The app's single view on authentication state (client state, not server state). */
 export function useSession(): Session {
   const auth = useAuth()
+  const queryClient = useQueryClient()
   const accessToken = auth.user?.access_token
   const roles = useMemo(() => decodeRolesFromAccessToken(accessToken), [accessToken])
 
@@ -26,6 +28,11 @@ export function useSession(): Session {
     displayName: auth.user?.profile.preferred_username ?? null,
     error: auth.error ?? null,
     signIn: () => void auth.signinRedirect(),
-    signOut: () => void auth.signoutRedirect(),
+    signOut: () => {
+      // Server-state cache is per-user: purge it before the redirect so
+      // nothing cached for user A survives into the next session.
+      queryClient.clear()
+      void auth.signoutRedirect()
+    },
   }
 }

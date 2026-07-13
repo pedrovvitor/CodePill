@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { trace } from '@opentelemetry/api'
-import { buildTelemetryAttributes, initTelemetry, tracePropagationTargets } from './otel'
+import { describe, expect, it, vi } from 'vitest'
+import { trace, TraceFlags } from '@opentelemetry/api'
+import type { ReadableSpan } from '@opentelemetry/sdk-trace-web'
+import {
+  buildTelemetryAttributes,
+  buildTracerProvider,
+  initTelemetry,
+  tracePropagationTargets,
+} from './otel'
 
 const config = {
   serviceName: 'codepill-web',
@@ -8,6 +14,7 @@ const config = {
   deploymentEnv: 'local',
   otlpTracesUrl: 'http://localhost:4318/v1/traces',
   apiBaseUrl: '',
+  traceSamplingRatio: 1,
 }
 
 describe('buildTelemetryAttributes (OBSERVABILITY.md §2 — required resource attributes)', () => {
@@ -37,6 +44,41 @@ describe('tracePropagationTargets', () => {
   })
 })
 
+describe('buildTracerProvider', () => {
+  it('samples root spans according to the configured ratio (parent-based)', async () => {
+    const dropAll = buildTracerProvider({ ...config, traceSamplingRatio: 0 })
+    const keepAll = buildTracerProvider({ ...config, traceSamplingRatio: 1 })
+
+    const dropped = dropAll.getTracer('test').startSpan('probe')
+    const kept = keepAll.getTracer('test').startSpan('probe')
+    dropped.end()
+    kept.end()
+
+    expect(dropped.spanContext().traceFlags & TraceFlags.SAMPLED).toBe(0)
+    expect(kept.spanContext().traceFlags & TraceFlags.SAMPLED).toBe(TraceFlags.SAMPLED)
+
+    await dropAll.shutdown()
+    await keepAll.shutdown()
+  })
+
+  it('merges our attributes with the SDK default resource', async () => {
+    const provider = buildTracerProvider(config)
+
+    const span = provider.getTracer('test').startSpan('probe')
+    span.end()
+    const resource = (span as unknown as ReadableSpan).resource
+
+    // Ours survive the merge …
+    expect(resource.attributes['service.name']).toBe('codepill-web')
+    expect(resource.attributes['deployment.environment']).toBe('local')
+    // … and the SDK defaults are present too.
+    expect(resource.attributes['telemetry.sdk.name']).toBe('opentelemetry')
+    expect(resource.attributes['telemetry.sdk.language']).toBeDefined()
+
+    await provider.shutdown()
+  })
+})
+
 describe('initTelemetry', () => {
   it('registers a global web tracer provider and is idempotent', () => {
     const first = initTelemetry(config)
@@ -45,5 +87,17 @@ describe('initTelemetry', () => {
     expect(first).toBe(second)
     expect(trace.getTracerProvider()).toBeDefined()
     expect(first.constructor.name).toBe('WebTracerProvider')
+  })
+
+  it('flushes pending spans on pagehide (tab close / bfcache) without rejecting', () => {
+    const provider = initTelemetry(config)
+    const forceFlush = vi
+      .spyOn(provider, 'forceFlush')
+      .mockRejectedValue(new Error('exporter gone'))
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(forceFlush).toHaveBeenCalledTimes(1)
+    forceFlush.mockRestore()
   })
 })

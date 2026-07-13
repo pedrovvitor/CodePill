@@ -7,6 +7,8 @@ export interface AppConfig {
   otlpTracesUrl: string
   deploymentEnv: string
   appVersion: string
+  /** Root trace sampling ratio in [0, 1] — see OBSERVABILITY.md. */
+  traceSamplingRatio: number
 }
 
 type RawEnv = Record<string, unknown>
@@ -16,14 +18,37 @@ function stringVar(env: RawEnv, key: string, fallback: string): string {
   return typeof value === 'string' && value !== '' ? value : fallback
 }
 
+/**
+ * Like {@link stringVar}, but the fallback is a dev-only convenience: a
+ * production build with the variable missing must fail fast at boot instead
+ * of silently pointing at localhost.
+ */
+function requiredVar(env: RawEnv, key: string, devFallback: string): string {
+  const value = env[key]
+  if (typeof value === 'string' && value !== '') return value
+  if (env.PROD === true) {
+    throw new Error(`Missing required environment variable ${key} in a production build`)
+  }
+  return devFallback
+}
+
+function ratioVar(env: RawEnv, key: string, fallback: number): number {
+  const value = env[key]
+  if (typeof value !== 'string' || value === '') return fallback
+  const parsed = Number.parseFloat(value)
+  if (Number.isNaN(parsed)) return fallback
+  return Math.min(1, Math.max(0, parsed))
+}
+
 export function resolveAppConfig(env: RawEnv): AppConfig {
   return {
     apiBaseUrl: stringVar(env, 'VITE_API_BASE_URL', ''),
-    oidcAuthority: stringVar(env, 'VITE_OIDC_AUTHORITY', 'http://localhost:8180/realms/codepill'),
+    oidcAuthority: requiredVar(env, 'VITE_OIDC_AUTHORITY', 'http://localhost:8180/realms/codepill'),
     oidcClientId: stringVar(env, 'VITE_OIDC_CLIENT_ID', 'codepill-web'),
-    otlpTracesUrl: stringVar(env, 'VITE_OTLP_TRACES_URL', 'http://localhost:4318/v1/traces'),
+    otlpTracesUrl: requiredVar(env, 'VITE_OTLP_TRACES_URL', 'http://localhost:4318/v1/traces'),
     deploymentEnv: stringVar(env, 'VITE_DEPLOYMENT_ENV', 'local'),
     appVersion: stringVar(env, 'VITE_APP_VERSION', '0.1.0'),
+    traceSamplingRatio: ratioVar(env, 'VITE_TRACE_SAMPLING', 1),
   }
 }
 

@@ -38,10 +38,14 @@ describe('FeedPage (mobile-first vertical scroll)', () => {
   })
 
   it('auto-loads the next page when the sentinel enters the viewport', async () => {
-    const observed: { callback: IntersectionObserverCallback | null } = { callback: null }
+    const observed: {
+      callback: IntersectionObserverCallback | null
+      options: IntersectionObserverInit | undefined
+    } = { callback: null, options: undefined }
     class FakeIntersectionObserver {
-      constructor(callback: IntersectionObserverCallback) {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
         observed.callback = callback
+        observed.options = options
       }
       observe() {}
       disconnect() {}
@@ -56,6 +60,9 @@ describe('FeedPage (mobile-first vertical scroll)', () => {
 
       renderWithProviders(<FeedPage />, { api })
       await screen.findByRole('feed')
+
+      // Look-ahead: start loading before the sentinel is actually visible.
+      expect(observed.options?.rootMargin).toBe('200px')
 
       observed.callback?.(
         [{ isIntersecting: true } as IntersectionObserverEntry],

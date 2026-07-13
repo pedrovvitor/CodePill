@@ -36,4 +36,20 @@ describe('buildOidcProviderProps (SECURITY.md §2 — Auth Code + PKCE, tokens i
     expect(window.sessionStorage.length).toBe(0)
     await expect(props.userStore?.get('probe')).resolves.toBe('{"access_token":"secret"}')
   })
+
+  it('keeps PKCE state in sessionStorage — survives the IdP redirect, never localStorage', async () => {
+    // NOT in memory: the code flow does a full-page redirect to the IdP and back,
+    // which wipes the JS heap — in-memory state would break every login.
+    const props = buildOidcProviderProps(config)
+    expect(props.stateStore).toBeDefined()
+    try {
+      await props.stateStore?.set('state-probe', '{"code_verifier":"secret"}')
+
+      expect(window.localStorage.length).toBe(0)
+      expect(window.sessionStorage.length).toBe(1)
+      await expect(props.stateStore?.get('state-probe')).resolves.toBe('{"code_verifier":"secret"}')
+    } finally {
+      await props.stateStore?.remove('state-probe')
+    }
+  })
 })

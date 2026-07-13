@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { usePillFeed } from '../../application/pills/use-pill-feed'
 import { PillCard } from '../components/PillCard'
 import { Button } from '../design-system/Button'
@@ -10,9 +10,13 @@ function FeedSentinel({ onVisible }: { onVisible: () => void }) {
 
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined' || ref.current === null) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) onVisible()
-    })
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onVisible()
+      },
+      // Look-ahead: start fetching before the sentinel actually scrolls into view.
+      { rootMargin: '200px' },
+    )
     observer.observe(ref.current)
     return () => observer.disconnect()
   }, [onVisible])
@@ -24,6 +28,11 @@ function FeedSentinel({ onVisible }: { onVisible: () => void }) {
 export function FeedPage() {
   const feed = usePillFeed()
   const pills = feed.data?.pages.flatMap((page) => page.content) ?? []
+
+  // Stable across renders (fetchNextPage is referentially stable in TanStack
+  // Query v5) so the sentinel's observer is not torn down every render.
+  const { fetchNextPage } = feed
+  const loadNextPage = useCallback(() => void fetchNextPage(), [fetchNextPage])
 
   if (feed.isPending) {
     return (
@@ -58,7 +67,7 @@ export function FeedPage() {
 
       {feed.hasNextPage && (
         <>
-          <FeedSentinel onVisible={() => void feed.fetchNextPage()} />
+          <FeedSentinel onVisible={loadNextPage} />
           <Button
             variant="ghost"
             disabled={feed.isFetchingNextPage}

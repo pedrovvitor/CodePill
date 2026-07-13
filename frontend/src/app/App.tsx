@@ -12,6 +12,7 @@ initTelemetry({
   deploymentEnv: appConfig.deploymentEnv,
   otlpTracesUrl: appConfig.otlpTracesUrl,
   apiBaseUrl: appConfig.apiBaseUrl,
+  traceSamplingRatio: appConfig.traceSamplingRatio,
 })
 
 export function App() {

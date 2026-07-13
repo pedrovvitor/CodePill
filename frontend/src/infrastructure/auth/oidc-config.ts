@@ -28,5 +28,8 @@ export function buildOidcProviderProps({
     scope: 'openid profile email',
     automaticSilentRenew: true,
     userStore: new WebStorageStateStore({ store: new InMemoryWebStorage() }),
+    // PKCE handshake state must survive the full-page redirect to the IdP, so it
+    // cannot live in memory; sessionStorage is tab-scoped and cleared on close
+    stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
   }
 }

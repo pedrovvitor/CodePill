@@ -128,6 +128,30 @@ describe('createHttpPillApi', () => {
     expect((error as ApiError).problem).toBeNull()
   })
 
+  it('sends every mutation with an abort signal so hung requests time out', async () => {
+    const { api, fetchMock } = apiWithFetch(jsonResponse(201, pill))
+
+    await api.createPill(input)
+
+    const signal = fetchMock.mock.calls[0]?.[1]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+  })
+
+  it('still honors a caller-provided abort signal alongside the timeout', async () => {
+    const { api, fetchMock } = apiWithFetch(jsonResponse(200, pill))
+    const controller = new AbortController()
+
+    await api.getPill(pill.id, controller.signal)
+
+    const signal = fetchMock.mock.calls[0]?.[1]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+
+    controller.abort()
+    expect(signal?.aborted).toBe(true)
+  })
+
   it('prefixes requests with the configured base URL', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, pill))
     vi.stubGlobal('fetch', fetchMock)
