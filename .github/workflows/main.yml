@@ -87,7 +87,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11
 
@@ -114,7 +114,7 @@ jobs:
 
       - name: SonarQube scan (frontend) — skipped until SONAR_* secrets are configured
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
-        uses: sonarsource/sonarqube-scan-action@v5
+        uses: sonarsource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
         with:
           projectBaseDir: frontend
 
@@ -130,11 +130,11 @@ jobs:
           fetch-depth: 0 # gitleaks scans full history
 
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11
 
@@ -208,7 +208,7 @@ jobs:
           nohup java -jar codepill-catalog/bootstrap/target/codepill-catalog-bootstrap-*.jar \
             > /tmp/catalog.log 2>&1 &
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11
 
