@@ -96,6 +96,14 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 
 ## Log (newest first)
 
+## [2026-07-13] Commit adversarial-review fixes; add project README
+- **Agent/Author:** Claude (DevRel/Technical Writer session)
+- **Task:** Land the adversarial-review changes as semantic commits (per team decision: no `docs/adr/` directory — decision rationale lives in this file), strip fix-narrating/self-evident code comments, re-verify everything, and write a root `README.md` aimed at developers and recruiters.
+- **Changes:** 6 commits (`5d510c8`…`5b02173`): backend hardening, frontend hardening, ops hardening, CI action pinning, this changelog, and the new `README.md` (badges, Mermaid architecture diagram, engineering highlights, zero-config quickstart with dev-realm accounts, curl walkthrough, observability tour, env-var reference). Comment cleanup only — no behavior changes beyond the already-reviewed fixes.
+- **Standards compliance:** N/A for the README (docs). All gates re-verified after cleanup: backend `mvnw verify` green (unit+IT+ArchUnit+JaCoCo), frontend 134 tests / 99% stmts / 91% branches + lint + build, E2E 6/6 (25.8s) against the freshly built jar with zero ERROR log lines.
+- **Tests:** No new tests (docs/cleanup); full regression suites re-run green as above.
+- **Follow-ups / debt:** ARCHITECTURE.md §5 and CLAUDE.md still reference `docs/adr/` — align the standards text with the no-ADR-directory decision on the next standards touch.
+
 ## [2026-07-11] Adversarial Review Findings & Fixes
 - **Agent/Author:** Claude (Principal Security & Reliability Engineer session)
 - **Task:** Adversarial production-readiness audit of `/backend`, `/frontend`, `/ops`, and CI against all `/docs/standards`, followed by implementation of the fixes (resiliency, security hardening, query/cache correctness) and this record.
