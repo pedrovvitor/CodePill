@@ -2,6 +2,7 @@
   "realm": "codepill",
   "enabled": true,
   "displayName": "CodePill (local)",
+  "sslRequired": "external",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,

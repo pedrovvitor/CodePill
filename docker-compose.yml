@@ -6,7 +6,7 @@
 # localhost; Prometheus scrapes them back via host.docker.internal.
 #
 # Usage:
-#   docker compose up -d                     # full stack, migrations auto-applied
+#   docker compose up -d # full stack, migrations auto-applied
 #   docker compose --profile seed up db-seed # load ~100k pills for read-load testing
 #
 # All credentials below are local-development defaults (overridable via .env,
@@ -48,8 +48,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
       POSTGRES_DB: codepill
     ports:
-      # host 5433: 5432 is taken by another local project (etl_viman_postgres_local)
-      - "5433:5432"
+      # host 5433: 5432 is taken by another local project; loopback-only like
+      # every published port in this stack (default would bind 0.0.0.0)
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./ops/db/init:/docker-entrypoint-initdb.d:ro
@@ -75,7 +76,7 @@ services:
       - --maxmemory-policy
       - allkeys-lru
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -92,8 +93,9 @@ services:
     command: ["-connectRetries=30", "migrate"]
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/codepill_identity
-      FLYWAY_USER: ${POSTGRES_USER:-codepill}
-      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      # per-service role (least privilege — see ops/db/init/01-create-databases.sql)
+      FLYWAY_USER: ${IDENTITY_DB_USER:-codepill_identity_svc}
+      FLYWAY_PASSWORD: ${IDENTITY_DB_PASSWORD:-codepill-local}
       FLYWAY_LOCATIONS: filesystem:/flyway/sql
     volumes:
       - ./ops/db/migrations/identity:/flyway/sql:ro
@@ -108,8 +110,9 @@ services:
     command: ["-connectRetries=30", "migrate"]
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/codepill_catalog
-      FLYWAY_USER: ${POSTGRES_USER:-codepill}
-      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      # per-service role (least privilege — see ops/db/init/01-create-databases.sql)
+      FLYWAY_USER: ${CATALOG_DB_USER:-codepill_catalog_svc}
+      FLYWAY_PASSWORD: ${CATALOG_DB_PASSWORD:-codepill-local}
       FLYWAY_LOCATIONS: filesystem:/flyway/sql
     volumes:
       # catalog migrations live in the service module (ARCHITECTURE.md §3);
@@ -131,8 +134,8 @@ services:
     environment:
       PGHOST: postgres
       PGDATABASE: codepill_catalog
-      PGUSER: ${POSTGRES_USER:-codepill}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      PGUSER: ${CATALOG_DB_USER:-codepill_catalog_svc}
+      PGPASSWORD: ${CATALOG_DB_PASSWORD:-codepill-local}
     volumes:
       - ./ops/db/seed:/seed:ro
     depends_on:
@@ -151,13 +154,15 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
-      KC_DB_USERNAME: ${POSTGRES_USER:-codepill}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-codepill-local}
+      # dedicated role: Keycloak's user store is not reachable with app credentials
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak_svc}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-codepill-local}
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
     ports:
-      - "8180:8080"   # OIDC endpoints — issuer: http://localhost:8180/realms/codepill
-      - "8181:9000"   # management: /health, /metrics
+      # loopback-only: the browser and host apps reach these via localhost
+      - "127.0.0.1:8180:8080"   # OIDC endpoints — issuer: http://localhost:8180/realms/codepill
+      - "127.0.0.1:8181:9000"   # management: /health, /metrics
     volumes:
       - ./ops/keycloak:/opt/keycloak/data/import:ro
     depends_on:
@@ -179,11 +184,15 @@ services:
     restart: unless-stopped
     command: ["--config=/etc/otelcol/config.yml"]
     ports:
-      - "4317:4317"   # OTLP gRPC (apps on host export here)
-      - "4318:4318"   # OTLP HTTP (browser SDK exports here)
+      - "127.0.0.1:4317:4317"   # OTLP gRPC (apps on host export here)
+      - "127.0.0.1:4318:4318"   # OTLP HTTP (browser SDK exports here)
     volumes:
       - ./ops/observability/otel-collector/config.yml:/etc/otelcol/config.yml:ro
-    depends_on: [loki, tempo]
+    depends_on:
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
     networks: [codepill-net]
 
   prometheus:
@@ -195,10 +204,15 @@ services:
       - --storage.tsdb.retention.time=7d
       - --web.enable-lifecycle
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
     networks: [codepill-net]
 
   loki:
@@ -207,10 +221,16 @@ services:
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yml"]
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./ops/observability/loki/loki.yml:/etc/loki/loki.yml:ro
       - loki-data:/loki
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3100/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 20s
     networks: [codepill-net]
 
   tempo:
@@ -221,10 +241,16 @@ services:
     user: "0"
     command: ["-config.file=/etc/tempo/tempo.yml"]
     ports:
-      - "3200:3200"   # Tempo query API (Grafana datasource)
+      - "127.0.0.1:3200:3200"   # Tempo query API (Grafana datasource)
     volumes:
       - ./ops/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
       - tempo-data:/var/tempo
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3200/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 20s
     networks: [codepill-net]
 
   grafana:
@@ -236,9 +262,15 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on: [prometheus, loki, tempo]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
     networks: [codepill-net]
