@@ -65,17 +65,26 @@ class SecurityConfig {
      * authentication). {@link SupplierJwtDecoder} keeps initialization lazy so
      * the service boots while the IdP is unreachable; issuer + audience
      * validation per SECURITY.md §2.2.
+     *
+     * <p>When {@code jwk-set-uri} is set (standard Spring property), keys are
+     * fetched from it and issuer discovery is skipped entirely — required in
+     * split-horizon deployments where the browser-facing issuer URL is not
+     * reachable from inside the cluster/network, and it keeps the pod's egress
+     * needs local. The {@code iss} claim is still validated against the issuer.
      */
     @Bean
     JwtDecoder jwtDecoder(
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
-            @Value("${spring.security.oauth2.resourceserver.jwt.audiences}") List<String> audiences) {
+            @Value("${spring.security.oauth2.resourceserver.jwt.audiences}") List<String> audiences,
+            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}") String jwkSetUri) {
         var requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(2));
         requestFactory.setReadTimeout(Duration.ofSeconds(2));
         var rest = new RestTemplate(requestFactory);
         return new SupplierJwtDecoder(() -> {
-            var decoder = NimbusJwtDecoder.withIssuerLocation(issuer)
+            var decoder = (jwkSetUri.isBlank()
+                    ? NimbusJwtDecoder.withIssuerLocation(issuer)
+                    : NimbusJwtDecoder.withJwkSetUri(jwkSetUri))
                     .restOperations(rest)
                     .build();
             decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
