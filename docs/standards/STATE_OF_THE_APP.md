@@ -1,6 +1,6 @@
 # CodePill — State of the App (Living Changelog)
 
-> **Status:** MANDATORY · **Owner:** Everyone · **Last updated:** 2026-07-09
+> **Status:** MANDATORY · **Owner:** Everyone · **Last updated:** 2026-07-29
 >
 > ⚠️ **AGENT PROTOCOL — NON-NEGOTIABLE**
 > This file is the single source of truth for what has been done, what is in flight, and what is next.
@@ -23,6 +23,7 @@
 - **CI/CD:** ✅ GitHub Actions (`.github/workflows/main.yml`) on push/PR to `main` + nightly + manual. Jobs: **backend** (`mvnw verify`: JUnit + Testcontainers ITs + ArchUnit + JaCoCo ≥85% gate, then SonarQube `codepill-backend` with blocking quality gate), **frontend** (ESLint boundaries + Prettier + Vitest ≥85% gate + `tsc`/build, then SonarQube `codepill-frontend`), **security** (gitleaks full-history, `pnpm audit --audit-level critical`, Trivy CRITICAL, OWASP Dependency-Check CVSS≥9 when `NVD_API_KEY` set), **e2e** (Playwright vs ephemeral compose stack). Sonar/OWASP steps self-skip until the `SONAR_HOST_URL`/`SONAR_TOKEN`/`NVD_API_KEY` repo secrets exist; every coverage and vulnerability gate fails the build unconditionally.
 - **E2E:** ✅ Playwright suite in `/e2e` (6 journeys, mobile viewport): OAuth2 Code+PKCE login/logout via Keycloak, role-gated authoring nav, create-pill form (+client-side contract validation), feed infinite scroll with API-seeded data (author drafts → curator publishes). See the 2026-07-10 CI entry for how to run locally.
 - **Test coverage:** ≥85% line+branch per module enforced at build; domain/application near 100%. Backend: 133 unit tests + 20 integration tests (Testcontainers PostgreSQL/Redis) + 6 ArchUnit rules. Frontend: 134 Vitest tests, 99% statements / 91% branches / 100% functions (85% gate wired in `vite.config.ts`). All green.
+- **Container images (2026-07-29):** ✅ `backend/Dockerfile` (multi-stage, Spring Boot layered-jar extraction, non-root uid 1001) and `frontend/Dockerfile` (pnpm build → `nginx-unprivileged`, CSP + security headers via env-templated nginx conf, runtime config injection through `/config.js` so one image serves any environment). CI `images` job pushes both to GHCR (`codepill-catalog`, `codepill-web`, tags `latest` + commit SHA) on green main. SPA initial bundle split 559 kB → 327 kB (OTel SDK and CreatePill/RHF+Zod lazy-loaded).
 - **Hardening (2026-07-11 adversarial review):** Redis 250ms fail-fast timeouts + afterCommit cache eviction; Hikari sized w/ leak detection + 5s `statement_timeout`; JWKS decoder with 2s HTTP timeouts; Bucket4j rate limiting on writes; 64k pill-content cap; `page ≤ 500`; prometheus scrape auth-gated outside local; fail-closed `prod` profile; per-service Postgres roles; loopback-only compose ports; SHA-pinned third-party CI actions; `codepill.*` span attributes on every use case. Details in the 2026-07-11 log entry.
 - **Known risks / open decisions:**
   - IdP choice defaulted to Keycloak (`SECURITY.md`) — revisit via ADR if managed IdP preferred.
@@ -72,11 +73,20 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 
 ## Next Up (prioritized backlog)
 
-1. ~~Scaffold monorepo: Maven multi-module backend skeleton (`codepill-catalog` first) + Vite React/TS frontend~~ ✅ Done — backend 2026-07-09, frontend 2026-07-10.
-2. ~~CI pipeline with all quality gates from `TESTING_QUALITY.md` §4~~ ✅ Done 2026-07-10 (GitHub Actions: tests+coverage gates, gitleaks/audit/Trivy/OWASP-DC, SonarQube, E2E). Remaining from this item: backend Spotless/Error Prone lint stage.
-3. ~~Local dev stack: docker-compose with PostgreSQL, Keycloak, OTel Collector, Grafana/Loki/Tempo/Prometheus.~~ ✅ Done 2026-07-09 (Redis included).
-4. `codepill-identity` integration with Keycloak; security test matrix.
-5. First vertical slice: author creates a pill → learner completes it (TDD, fully observable, secured).
+**Go-live track — publish CodePill as a public, navigable demo (Kubernetes deploy) + public repo.** Full rationale in the 2026-07-29 log entry.
+
+1. ~~**Containerize:** multi-stage Dockerfiles for `codepill-catalog` (Temurin 25 JRE, non-root) and `codepill-web` (static build behind nginx with CSP + `X-Content-Type-Options`); CI job pushes images to GHCR tagged by SHA; frontend code splitting / lazy OTel init.~~ ✅ Done 2026-07-29 (see log entry).
+2. **Kubernetes deploy (k3s on a single VPS):** own **Helm chart** per deployable (target-role stack is Kubernetes + Helm); Deployments with actuator liveness/readiness probes, resource requests/limits + an HPA on the catalog service, restrictive SecurityContext, NetworkPolicies; ingress + cert-manager (TLS 1.3, HSTS per SECURITY.md §4.1); k8s Secrets for all credentials; Postgres/Redis/Keycloak in-cluster with PVCs + `pg_dump` backup CronJob; observability stack (collector/Prometheus/Grafana/Loki/Tempo) in-cluster; **GitOps CD via Argo CD** watching the chart repo (progressive-delivery story for the showcase).
+3. **Production hardening:** separate **prod** Keycloak realm (no committed secrets, prod-domain-only redirect URIs, brute-force detection on, no self-registration); `application-prod.yml` env vars supplied via Secrets (fail-closed posture already in place, F-09); ingress-level rate limiting on top of in-service Bucket4j; nightly demo-data reset CronJob; Trivy scan of built images; final secrets pass (gitleaks full history) **before flipping the repo public**.
+4. **Demo content & showcase:** seed 20–30 real microlearning pills (Clean Architecture, Kubernetes, OTel — the project teaching its own stack); demo credentials surfaced on the login page + demo banner; `LICENSE` (MIT); README gains Live Demo section, screenshots, SonarCloud badges; repo → public.
+5. **Go-live checklist:** E2E smoke against prod URL; anonymous 401/403 matrix against the live API; securityheaders.com + Lighthouse passes; light load check (100k-pill seed exists).
+
+**Product track (post-demo):**
+
+6. `codepill-identity` integration with Keycloak; security test matrix.
+7. First vertical slice: author creates a pill → learner completes it (TDD, fully observable, secured).
+8. Backend Spotless/Error Prone lint stage (CI §4 stage 1, pre-existing debt).
+9. **AI authoring aid (post-launch, phase 6):** LLM-assisted "draft a pill" generative tooling + embeddings-based semantic feed search (pgvector), model access as a k8s workload — mirrors the growing AI/ML focus of the target role.
 
 ---
 
@@ -95,6 +105,28 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 ---
 
 ## Log (newest first)
+
+## [2026-07-29] Go-live phase 1: container images, GHCR publish, SPA bundle split
+- **Agent/Author:** Claude (platform engineering session)
+- **Task:** Execute go-live phase 1 — containerize both deployables, publish images from CI, and close the SPA bundle/headers debt.
+- **Changes:**
+  - **`backend/Dockerfile`** (+ `.dockerignore`) — multi-stage: `eclipse-temurin:25-jdk` Maven build (BuildKit m2 cache) → layered-jar extraction (`-Djarmode=tools extract --layers --launcher`) → `eclipse-temurin:25-jre` runtime with one image layer per Boot layer (dependency pulls stay cached across code-only changes), non-root `codepill` (uid 1001), `JarLauncher` entrypoint. Image is environment-agnostic: all config via env (application.yml placeholders).
+  - **`frontend/Dockerfile`** (+ `.dockerignore`, `docker/`) — multi-stage: `node:24-alpine` pnpm build → **`nginxinc/nginx-unprivileged:1.29-alpine`** (uid 101, port 8080). `docker/default.conf.template` ships the SECURITY.md §4.3 headers — **CSP** (env-expandable `connect-src`/`frame-src` lists for the IdP and OTLP origins; the OIDC silent-renew iframe needs the IdP in `frame-src`), `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors 'none'` — plus SPA fallback, immutable caching for hashed `/assets/`, no-cache for `index.html`/`config.js`, and a static `/healthz`. HSTS stays at the TLS terminator.
+  - **Runtime configuration (12-factor, one image per all environments):** `docker/40-codepill-runtime-env.sh` writes `/config.js` (`window.__CODEPILL_ENV__`) from container env at startup; `index.html` loads it before the bundle; `env.ts` gains `readRuntimeEnv` (TDD — 5 failing tests first) which merges runtime values over `import.meta.env`, discarding empty strings so unset deploy vars never clobber build-time values. Dev/preview serve an empty `public/config.js`.
+  - **Bundle split (closes the 559 kB debt):** route-level `React.lazy` for all pages + dynamic-import OTel bootstrap. Initial chunk **327 kB (99 kB gzip)**; OTel SDK (100 kB) and CreatePillPage with react-hook-form/zod (103 kB) load lazily. Fetch instrumentation still patches in before any API call (data fetching starts only after the OIDC exchange).
+  - **CI (`main.yml`):** new `images` job — plain docker CLI + `GITHUB_TOKEN` (no new third-party actions to pin), runs only on green `main` after all gates (`needs: backend, frontend, security, e2e`), pushes `ghcr.io/<owner>/codepill-{catalog,web}` tagged `latest` + commit SHA.
+  - **Flaky-test fix:** `otel.test.ts` had a hidden network dependency — `provider.shutdown()` exported spans to `:4318`, hanging 5s per test when nothing listened (Windows drops the SYN; only passed with the local collector up). The OTLP exporter is now mocked in the test file per TESTING_QUALITY.md §3.3 (no network in unit tests).
+- **Standards compliance:** TDD for the code change (failing `readRuntimeEnv` tests first); coverage 99.21% stmts / 91.32% branches (≥85% gate green); CSP/`nosniff` debt from 2026-07-10 closed; no new anonymous API surface (nginx `/healthz` is static, backend untouched); no secrets in images (verified: config comes from env at runtime).
+- **Tests:** Frontend 139 Vitest tests (+5) green, lint/format/typecheck/build clean. **Container smoke (both images run locally):** web — headers present with env-expanded CSP, `/config.js` reflects container env, `/healthz` 200, SPA fallback 200, immutable asset caching, uid 101; catalog — on the compose network: readiness/liveness UP (Flyway validate against the real schema), anonymous API → 401, `/actuator/metrics` → 401, JSON logs zero ERROR, uid 1001. **E2E 6/6 green (27.8s)** against the code-split production build with `config.js`.
+- **Follow-ups / debt:** images are amd64-only (pick an x86 VPS or add buildx/QEMU for arm64); CI image job re-downloads Maven deps (no cross-run BuildKit cache) — consider `actions/cache` + buildx cache mounts if it gets slow; phase 2 (k8s manifests via Helm) consumes these images.
+
+## [2026-07-29] Production/demo deployment plan (public side-project showcase)
+- **Agent/Author:** Claude (planning session)
+- **Task:** Assess production-readiness and plan publishing CodePill as a publicly navigable demo + public repo, as a portfolio side project targeting a Senior Full Stack (Java & Kubernetes) role.
+- **Changes:** Docs only. Replaced the completed "Next Up" items with a phased go-live backlog (containerize → k3s Kubernetes deploy → prod hardening → demo content/showcase → go-live checklist). Key decisions proposed: **k3s on a single VPS** as the Kubernetes target (real k8s primitives at hobby cost; the deployment gap becomes the showcased skill); **pre-created demo accounts, no self-registration** (no real PII, no abuse surface); **separate prod Keycloak realm** generated at deploy time (the committed realm file stays local-dev only); repo flips **public with MIT license** only after a final full-history secrets pass. Current gaps confirmed: no Dockerfiles, no LICENSE, repo private, no deployment target — everything else (security hardening, fail-closed prod profile, CI gates, E2E) already landed in the 2026-07-11 review.
+- **Standards compliance:** N/A — planning/documentation; no application code changed.
+- **Tests:** N/A.
+- **Follow-ups / debt:** execute go-live phases 1–5 in "Next Up".
 
 ## [2026-07-13] Commit adversarial-review fixes; add project README
 - **Agent/Author:** Claude (DevRel/Technical Writer session)
