@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: codepill
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1" # after the data tier
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/pedrovvitor/CodePill.git
+    targetRevision: main
+    path: ops/k8s/charts/codepill
+    helm:
+      valuesObject:
+        # ── environment-specific values (edit at go-live) ──
+        domain: codepill.example.com
+        catalog:
+          image:
+            tag: latest # pin to a commit SHA to promote a build
+        web:
+          image:
+            tag: latest
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: codepill
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
