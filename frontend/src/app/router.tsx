@@ -1,10 +1,21 @@
+import { lazy, Suspense } from 'react'
 import { Link, Route, Routes } from 'react-router'
 import { AppShell } from '../ui/components/AppShell'
 import { ProtectedRoute } from '../ui/components/ProtectedRoute'
-import { AuthCallbackPage } from '../ui/pages/AuthCallbackPage'
-import { CreatePillPage } from '../ui/pages/CreatePillPage'
-import { FeedPage } from '../ui/pages/FeedPage'
-import { LoginPage } from '../ui/pages/LoginPage'
+import { Spinner } from '../ui/design-system/Spinner'
+
+// Route-level code splitting: each page (and whatever only it pulls in —
+// react-hook-form/zod live behind CreatePillPage) loads on first navigation.
+const AuthCallbackPage = lazy(() =>
+  import('../ui/pages/AuthCallbackPage').then((m) => ({ default: m.AuthCallbackPage })),
+)
+const CreatePillPage = lazy(() =>
+  import('../ui/pages/CreatePillPage').then((m) => ({ default: m.CreatePillPage })),
+)
+const FeedPage = lazy(() => import('../ui/pages/FeedPage').then((m) => ({ default: m.FeedPage })))
+const LoginPage = lazy(() =>
+  import('../ui/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+)
 
 function NotFoundPage() {
   return (
@@ -17,18 +28,28 @@ function NotFoundPage() {
   )
 }
 
+function PageFallback() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center">
+      <Spinner label="Loading page" />
+    </div>
+  )
+}
+
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/auth/callback" element={<AuthCallbackPage />} />
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route path="/" element={<FeedPage />} />
-          <Route path="/pills/new" element={<CreatePillPage />} />
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<FeedPage />} />
+            <Route path="/pills/new" element={<CreatePillPage />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   )
 }
