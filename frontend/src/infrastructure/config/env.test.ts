@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAppConfig } from './env'
+import { readRuntimeEnv, resolveAppConfig } from './env'
 
 describe('resolveAppConfig', () => {
   it('falls back to local-dev defaults (12-factor: env overrides, sane defaults)', () => {
@@ -63,6 +63,42 @@ describe('resolveAppConfig', () => {
       const config = resolveAppConfig({ PROD: false })
       expect(config.oidcAuthority).toBe('http://localhost:8180/realms/codepill')
       expect(config.otlpTracesUrl).toBe('http://localhost:4318/v1/traces')
+    })
+  })
+
+  describe('runtime environment (container-injected config.js)', () => {
+    it('returns an empty source when the global is absent', () => {
+      expect(readRuntimeEnv(undefined)).toEqual({})
+    })
+
+    it('returns an empty source for non-object values', () => {
+      expect(readRuntimeEnv('VITE_OIDC_CLIENT_ID=x')).toEqual({})
+      expect(readRuntimeEnv(null)).toEqual({})
+    })
+
+    it('keeps only non-empty string entries', () => {
+      const runtime = readRuntimeEnv({
+        VITE_OIDC_CLIENT_ID: 'codepill-web-prod',
+        VITE_API_BASE_URL: '',
+        VITE_TRACE_SAMPLING: 0.1,
+      })
+      expect(runtime).toEqual({ VITE_OIDC_CLIENT_ID: 'codepill-web-prod' })
+    })
+
+    it('overrides build-time values when spread over import.meta.env', () => {
+      const buildEnv = { VITE_OIDC_AUTHORITY: 'http://localhost:8180/realms/codepill' }
+      const runtime = readRuntimeEnv({
+        VITE_OIDC_AUTHORITY: 'https://id.codepill.dev/realms/codepill',
+      })
+      const config = resolveAppConfig({ ...buildEnv, ...runtime })
+      expect(config.oidcAuthority).toBe('https://id.codepill.dev/realms/codepill')
+    })
+
+    it('leaves build-time values intact when the runtime entry is empty (unset envsubst var)', () => {
+      const buildEnv = { VITE_OIDC_AUTHORITY: 'https://id.codepill.dev/realms/codepill' }
+      const runtime = readRuntimeEnv({ VITE_OIDC_AUTHORITY: '' })
+      const config = resolveAppConfig({ ...buildEnv, ...runtime })
+      expect(config.oidcAuthority).toBe('https://id.codepill.dev/realms/codepill')
     })
   })
 

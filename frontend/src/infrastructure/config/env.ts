@@ -40,6 +40,21 @@ function ratioVar(env: RawEnv, key: string, fallback: number): number {
   return Math.min(1, Math.max(0, parsed))
 }
 
+/**
+ * Runtime configuration source: the container entrypoint writes
+ * `/config.js` (`window.__CODEPILL_ENV__`) so one immutable image serves any
+ * environment. Empty strings are dropped — an unset variable at deploy time
+ * must not clobber a build-time value.
+ */
+export function readRuntimeEnv(source: unknown): RawEnv {
+  if (typeof source !== 'object' || source === null) return {}
+  return Object.fromEntries(
+    Object.entries(source).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '',
+    ),
+  )
+}
+
 export function resolveAppConfig(env: RawEnv): AppConfig {
   return {
     apiBaseUrl: stringVar(env, 'VITE_API_BASE_URL', ''),
@@ -52,4 +67,7 @@ export function resolveAppConfig(env: RawEnv): AppConfig {
   }
 }
 
-export const appConfig: AppConfig = resolveAppConfig(import.meta.env)
+export const appConfig: AppConfig = resolveAppConfig({
+  ...import.meta.env,
+  ...readRuntimeEnv((globalThis as Record<string, unknown>).__CODEPILL_ENV__),
+})
