@@ -277,6 +277,19 @@ jobs:
           docker build -t "$REGISTRY/codepill-catalog:$GITHUB_SHA" -t "$REGISTRY/codepill-catalog:latest" backend
           docker build -t "$REGISTRY/codepill-web:$GITHUB_SHA" -t "$REGISTRY/codepill-web:latest" frontend
 
+      # The security job scans the lockfiles; this scans what actually ships
+      # (base image layers included). CRITICAL blocks the publish.
+      - name: Scan images (Trivy) before pushing
+        env:
+          TRIVY_VERSION: 0.72.0
+        run: |
+          curl -fsSL -o /tmp/trivy.deb \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
+          sudo dpkg -i /tmp/trivy.deb
+          REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$REGISTRY/codepill-catalog:$GITHUB_SHA"
+          trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$REGISTRY/codepill-web:$GITHUB_SHA"
+
       - name: Push images
         run: |
           REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
