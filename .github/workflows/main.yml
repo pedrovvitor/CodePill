@@ -7,6 +7,7 @@
 #   4. Security gates      (gitleaks, pnpm audit, Trivy; OWASP Dependency-Check when NVD_API_KEY is set)
 #   5. SonarQube scans     (when SONAR_HOST_URL + SONAR_TOKEN secrets are set; quality gate blocks)
 #   6. E2E (Playwright)    (ephemeral docker compose stack: PostgreSQL, Redis, Keycloak, OTel)
+#   7. Images → GHCR       (push to main only, after every gate above is green)
 #
 # Coverage below 85% fails unconditionally (JaCoCo/Vitest) — no Sonar required.
 name: CI
@@ -252,3 +253,32 @@ jobs:
       - name: Tear down ephemeral stack
         if: always()
         run: docker compose down -v
+
+  images:
+    name: Images · build + push to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Publish only from main, and only once every quality gate is green.
+    needs: [backend, frontend, security, e2e]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Plain docker CLI + GITHUB_TOKEN: no third-party actions to SHA-pin.
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build images
+        run: |
+          REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          docker build -t "$REGISTRY/codepill-catalog:$GITHUB_SHA" -t "$REGISTRY/codepill-catalog:latest" backend
+          docker build -t "$REGISTRY/codepill-web:$GITHUB_SHA" -t "$REGISTRY/codepill-web:latest" frontend
+
+      - name: Push images
+        run: |
+          REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          docker push --all-tags "$REGISTRY/codepill-catalog"
+          docker push --all-tags "$REGISTRY/codepill-web"
