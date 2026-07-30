@@ -1,0 +1,129 @@
+# CodePill — local demo overlay: runs the two production images on top of the
+# base infra stack, wired the same way the k8s ingress does it (web is the
+# single origin, /api proxied to the catalog). Pre-deploy rehearsal, no host
+# toolchain needed — everything builds and runs in Docker.
+#
+# Usage (from the repo root):
+#   docker compose -f docker-compose.yml -f ops/local-demo/docker-compose.demo.yml up -d --build
+#   docker compose -f docker-compose.yml -f ops/local-demo/docker-compose.demo.yml --profile demo-seed up demo-seed
+#
+# Then open http://localhost:5173 and sign in as dev-author / codepill-local
+# (also dev-learner, dev-curator, dev-admin — same password).
+#
+# The seed is opt-in (profile demo-seed) because it RESETS the catalog: it
+# truncates pills and reloads the 17 demo ones, re-owned to this stack's
+# dev-author/dev-curator (the k8s demo users' pinned UUIDs only exist in the
+# prod realm). Re-run it any time you want a clean slate.
+
+services:
+  # NOTE: relative paths below resolve against the FIRST compose file's
+  # directory (the repo root), not this overlay's — a docker compose rule.
+  catalog:
+    build: ./backend
+    container_name: codepill-catalog
+    restart: unless-stopped
+    environment:
+      # prod profile = the fail-closed configuration we ship; every value the
+      # VPS will need is spelled out here, which is the point of the rehearsal
+      SPRING_PROFILES_ACTIVE: prod
+      CODEPILL_CATALOG_DB_URL: jdbc:postgresql://postgres:5432/codepill_catalog
+      CODEPILL_DB_USER: ${CATALOG_DB_USER:-codepill_catalog_svc}
+      CODEPILL_DB_PASSWORD: ${CATALOG_DB_PASSWORD:-codepill-local}
+      CODEPILL_REDIS_HOST: redis
+      CODEPILL_REDIS_PASSWORD: ${REDIS_PASSWORD:-codepill-local}
+      # issuer stays the browser-facing URL so the `iss` claim matches; the
+      # JWKS is fetched container-to-container (with jwk-set-uri set, Spring
+      # skips issuer discovery and never needs to reach localhost:8180 itself)
+      CODEPILL_OIDC_ISSUER: http://localhost:8180/realms/codepill
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI: http://keycloak:8080/realms/codepill/protocol/openid-connect/certs
+      CODEPILL_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      # metrics travel via the Prometheus scrape, not the Boot 4 OTLP push
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      # same network-bounded exception as the k8s chart: the local Prometheus
+      # keeps scraping host.docker.internal:8080 (loopback-published only)
+      SPRING_APPLICATION_JSON: '{"codepill":{"security":{"prometheus-public":true}}}'
+      CODEPILL_ENV: local
+      CODEPILL_TRACE_SAMPLING: "1.0"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      # temurin-jre has no curl; bash /dev/tcp like the keycloak check
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -en 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && timeout 3 cat <&3 | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [codepill-net]
+
+  web:
+    build: ./frontend
+    container_name: codepill-web
+    restart: unless-stopped
+    environment:
+      # VITE_API_BASE_URL stays unset: '' = same-origin, /api goes through
+      # this container's nginx to the catalog — the ingress topology in local
+      VITE_OIDC_AUTHORITY: http://localhost:8180/realms/codepill
+      VITE_OIDC_CLIENT_ID: codepill-web
+      VITE_OTLP_TRACES_URL: http://localhost:4318/v1/traces
+      VITE_DEPLOYMENT_ENV: local
+      VITE_TRACE_SAMPLING: "1"
+      # demo panel stays off: it advertises the prod realm's demo-* accounts,
+      # which don't exist in the local dev realm (dev-* users instead)
+      VITE_DEMO_MODE: "false"
+      CODEPILL_CSP_CONNECT_SRC: "'self' http://localhost:8180 http://localhost:4318"
+      CODEPILL_CSP_FRAME_SRC: "'self' http://localhost:8180"
+    volumes:
+      # local-only nginx vhost: same file as the image's plus the /api proxy
+      # (in k8s that split belongs to the ingress)
+      - ./ops/local-demo/web-local.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      # 5173 mirrors the Vite dev port so the realm's redirect URIs
+      # (http://localhost:5173/*) keep working unchanged
+      - "127.0.0.1:5173:8080"
+    depends_on:
+      catalog:
+        condition: service_started
+    networks: [codepill-net]
+
+  # Loads the 17 curated demo pills (the same file the k8s PostSync hook and
+  # nightly reset apply), rewriting the pinned prod-realm author UUIDs to the
+  # real IDs Keycloak assigned to this stack's dev-author/dev-curator — so
+  # ownership flows (edit your pill, publish the draft) are testable locally.
+  demo-seed:
+    image: postgres:17-alpine
+    container_name: codepill-demo-seed
+    profiles: [demo-seed]
+    entrypoint: ["/bin/sh", "-ceu"]
+    command:
+      - |
+        kc="postgresql://$${KC_DB_USER}:$${KC_DB_PASSWORD}@postgres:5432/keycloak"
+        author=$$(psql "$$kc" -tA -c "select u.id from user_entity u join realm r on u.realm_id = r.id where r.name = 'codepill' and u.username = 'dev-author'")
+        curator=$$(psql "$$kc" -tA -c "select u.id from user_entity u join realm r on u.realm_id = r.id where r.name = 'codepill' and u.username = 'dev-curator'")
+        [ -n "$$author" ] && [ -n "$$curator" ] || { echo "dev users not found — has Keycloak finished the realm import?"; exit 1; }
+        sed -e "s/d0000001-0000-4000-8000-000000000002/$$author/g" \
+            -e "s/d0000001-0000-4000-8000-000000000003/$$curator/g" /seed/demo-seed.sql \
+          | psql -v ON_ERROR_STOP=1 "postgresql://$${PGUSER}:$${PGPASSWORD}@postgres:5432/codepill_catalog" -f -
+        psql "postgresql://$${PGUSER}:$${PGPASSWORD}@postgres:5432/codepill_catalog" \
+          -c "select status, count(*) from pills group by status order by status"
+    environment:
+      PGUSER: ${CATALOG_DB_USER:-codepill_catalog_svc}
+      PGPASSWORD: ${CATALOG_DB_PASSWORD:-codepill-local}
+      KC_DB_USER: ${KEYCLOAK_DB_USER:-keycloak_svc}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-codepill-local}
+    volumes:
+      - ./ops/k8s/charts/codepill/files/demo-seed.sql:/seed/demo-seed.sql:ro
+    depends_on:
+      flyway-catalog:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    networks: [codepill-net]

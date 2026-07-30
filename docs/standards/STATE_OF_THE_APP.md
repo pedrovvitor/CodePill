@@ -107,6 +107,17 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 
 ## Log (newest first)
 
+## [2026-07-30] Local demo stack (all-Docker) + split-horizon JWT fix it uncovered
+- **Agent/Author:** Claude (platform engineering session)
+- **Task:** Run the full platform locally in Docker (production images, demo pills seeded) as a pre-deploy rehearsal.
+- **Changes:**
+  - **`ops/local-demo/`** — compose overlay adding the two production images to the base infra stack: catalog on the **prod profile** (every VPS-bound variable spelled out), web's nginx standing in for the ingress (`/api` proxy, same-origin — `web-local.conf.template`), published at `localhost:5173` so the dev realm's redirect URIs work unchanged. `demo-seed` service (opt-in `--profile demo-seed`, it resets the catalog) applies the k8s demo seed after rewriting the pinned prod-realm author UUIDs to the IDs Keycloak actually assigned to `dev-author`/`dev-curator` — ownership flows testable locally. Gotcha recorded inline: relative paths in compose overlays resolve against the FIRST file's directory.
+  - **Backend (TDD):** the rehearsal caught a real bug — `SecurityConfig#jwtDecoder` always resolved keys via **issuer discovery**, so any deployment where the browser-facing issuer URL is not reachable from inside the network (this stack; also the k8s pods but for the ingress hairpin) failed all authenticated requests with 401 (`JwtDecoderInitializationException`, lazily — kind validation never saw it because nothing exercised an authenticated call). Fix: honor the standard `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` property when set (keys from it, no discovery; `iss` + `aud` validation unchanged). `JwtDecoderConfigTest` (4 tests) proves it against a stub IdP that 404s discovery.
+  - **k8s charts:** catalog now fetches the JWKS **in-cluster** (`http://keycloak:8080/...`) instead of round-tripping through the public issuer URL; `keycloak-ingress` NetworkPolicy gains the catalog→8080 allowance. Egress needs of the pod stay local.
+- **Verification:** backend `mvnw verify` green (coverage gate included); `helm lint` clean on both changed charts; live smoke on the stack: catalog readiness UP, anon `/api/v1/pills` → 401, `dev-learner` token via the web proxy → **200 with the seeded feed** (16 PUBLISHED + 1 DRAFT in the DB), all 5 Prometheus targets up (catalog scrape unchanged via `host.docker.internal:8080`). Token minted by temporarily toggling direct grant on via kcadm and restoring it to `false` right after.
+- **Standards compliance:** failing test first for the backend change; no secrets added (local-dev defaults only); deviation none — the fix aligns the custom decoder with the standard Spring property.
+- **Follow-ups / debt:** demo login panel is off locally (`VITE_DEMO_MODE=false` — the panel advertises the prod realm's `demo-*` accounts; local realm has `dev-*`); at go-live, verify the catalog→keycloak:8080 NP allowance on k3s together with the rest of the deny-by-default posture.
+
 ## [2026-07-30] Go-live phase 2: Kubernetes (Helm + k3s + Argo CD) — validated on a local kind cluster
 - **Agent/Author:** Claude (platform engineering session)
 - **Task:** Execute go-live phase 2 (Kubernetes deployment via own Helm charts, GitOps CD, VPS bootstrap) plus the phase-3/4 items doable without a VPS (prod Keycloak realm, backups, demo content lifecycle, demo login panel, LICENSE, image scanning).
