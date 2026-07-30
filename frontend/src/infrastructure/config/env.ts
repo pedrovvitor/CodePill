@@ -9,6 +9,8 @@ export interface AppConfig {
   appVersion: string
   /** Root trace sampling ratio in [0, 1] — see OBSERVABILITY.md. */
   traceSamplingRatio: number
+  /** Demo deployment: surfaces the public demo credentials on the login page. */
+  demoMode: boolean
 }
 
 type RawEnv = Record<string, unknown>
@@ -64,6 +66,7 @@ export function resolveAppConfig(env: RawEnv): AppConfig {
     deploymentEnv: stringVar(env, 'VITE_DEPLOYMENT_ENV', 'local'),
     appVersion: stringVar(env, 'VITE_APP_VERSION', '0.1.0'),
     traceSamplingRatio: ratioVar(env, 'VITE_TRACE_SAMPLING', 1),
+    demoMode: env.VITE_DEMO_MODE === 'true',
   }
 }
 

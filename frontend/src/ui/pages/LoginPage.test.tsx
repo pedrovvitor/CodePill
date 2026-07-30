@@ -13,11 +13,11 @@ const useSessionMock = vi.mocked(useSession)
 
 beforeEach(() => useSessionMock.mockReset())
 
-function renderAt(route: string) {
+function renderAt(route: string, loginPage = <LoginPage />) {
   return renderWithProviders(
     <Routes>
       <Route path="/" element={<p>the feed</p>} />
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={loginPage} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
     </Routes>,
     { route },
@@ -47,6 +47,31 @@ describe('LoginPage', () => {
     )
     renderAt('/login')
     expect(screen.getByText(/IdP unreachable/)).toBeInTheDocument()
+  })
+
+  describe('demo credentials panel (public by design in demo deployments)', () => {
+    const demoAccounts = [
+      { username: 'demo-learner', role: 'Learner' },
+      { username: 'demo-author', role: 'Author' },
+      { username: 'demo-curator', role: 'Curator' },
+    ]
+
+    it('lists the demo accounts and shared password when provided', () => {
+      useSessionMock.mockReturnValue(aSession({ isAuthenticated: false }))
+      renderAt('/login', <LoginPage demoAccounts={demoAccounts} demoPassword="codepill-demo" />)
+
+      const panel = screen.getByRole('region', { name: /demo accounts/i })
+      expect(panel).toHaveTextContent('demo-learner')
+      expect(panel).toHaveTextContent('demo-author')
+      expect(panel).toHaveTextContent('demo-curator')
+      expect(panel).toHaveTextContent('codepill-demo')
+    })
+
+    it('renders nothing demo-related by default', () => {
+      useSessionMock.mockReturnValue(aSession({ isAuthenticated: false }))
+      renderAt('/login')
+      expect(screen.queryByRole('region', { name: /demo accounts/i })).not.toBeInTheDocument()
+    })
   })
 })
 

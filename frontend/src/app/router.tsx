@@ -1,8 +1,20 @@
 import { lazy, Suspense } from 'react'
 import { Link, Route, Routes } from 'react-router'
+import { appConfig } from '../infrastructure/config/env'
 import { AppShell } from '../ui/components/AppShell'
 import { ProtectedRoute } from '../ui/components/ProtectedRoute'
 import { Spinner } from '../ui/design-system/Spinner'
+
+// Shared demo credentials, public by design (they match the demo realm import
+// in ops/k8s/charts/codepill-infra — keep in sync with demoUserPassword there).
+const demoAccounts = appConfig.demoMode
+  ? [
+      { username: 'demo-learner', role: 'Learner' },
+      { username: 'demo-author', role: 'Author' },
+      { username: 'demo-curator', role: 'Curator' },
+    ]
+  : []
+const demoPassword = appConfig.demoMode ? 'codepill-demo' : undefined
 
 // Route-level code splitting: each page (and whatever only it pulls in —
 // react-hook-form/zod live behind CreatePillPage) loads on first navigation.
@@ -40,7 +52,10 @@ export function AppRoutes() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/login"
+          element={<LoginPage demoAccounts={demoAccounts} demoPassword={demoPassword} />}
+        />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>

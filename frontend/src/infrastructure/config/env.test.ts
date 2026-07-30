@@ -12,6 +12,20 @@ describe('resolveAppConfig', () => {
       deploymentEnv: 'local',
       appVersion: '0.1.0',
       traceSamplingRatio: 1,
+      demoMode: false,
+    })
+  })
+
+  describe('VITE_DEMO_MODE', () => {
+    it('is off by default', () => {
+      expect(resolveAppConfig({}).demoMode).toBe(false)
+    })
+
+    it('turns on only for the literal string "true"', () => {
+      expect(resolveAppConfig({ VITE_DEMO_MODE: 'true' }).demoMode).toBe(true)
+      expect(resolveAppConfig({ VITE_DEMO_MODE: 'TRUE' }).demoMode).toBe(false)
+      expect(resolveAppConfig({ VITE_DEMO_MODE: '1' }).demoMode).toBe(false)
+      expect(resolveAppConfig({ VITE_DEMO_MODE: true }).demoMode).toBe(false)
     })
   })
 
