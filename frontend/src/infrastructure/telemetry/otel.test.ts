@@ -1,6 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
 import { trace, TraceFlags } from '@opentelemetry/api'
+import { ExportResultCode, type ExportResult } from '@opentelemetry/core'
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-web'
+
+// The real exporter opens network connections on shutdown/flush, coupling the
+// suite to whatever answers on the OTLP port (nothing on CI, the collector
+// locally, a firewall black-hole otherwise). Determinism per
+// TESTING_QUALITY.md §3.3: no network in unit tests.
+vi.mock('@opentelemetry/exporter-trace-otlp-http', () => ({
+  OTLPTraceExporter: class {
+    export(_spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {
+      resultCallback({ code: ExportResultCode.SUCCESS })
+    }
+    shutdown(): Promise<void> {
+      return Promise.resolve()
+    }
+    forceFlush(): Promise<void> {
+      return Promise.resolve()
+    }
+  },
+}))
 import {
   buildTelemetryAttributes,
   buildTracerProvider,
