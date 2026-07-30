@@ -64,6 +64,14 @@ spec:
               {{- toYaml .Values.networkPolicies.ingressPodLabels | nindent 14 }}
       ports:
         - port: 8080
+    # Catalog fetches the realm JWKS in-cluster (jwk-set-uri) instead of
+    # round-tripping through the public issuer URL
+    - from:
+        - podSelector:
+            matchLabels:
+              app: codepill-catalog
+      ports:
+        - port: 8080
     # Keycloak metrics/health for Prometheus
     - from:
         - namespaceSelector:

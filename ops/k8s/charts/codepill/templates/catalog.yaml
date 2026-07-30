@@ -70,6 +70,10 @@ spec:
                   key: REDIS_PASSWORD
             - name: CODEPILL_OIDC_ISSUER
               value: "https://id.{{ .Values.domain }}/realms/codepill"
+            # keys fetched in-cluster; the public issuer URL never needs to be
+            # reachable from the pod (iss claim still validated against it)
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+              value: http://keycloak:8080/realms/codepill/protocol/openid-connect/certs
             - name: CODEPILL_OTLP_TRACES_ENDPOINT
               value: "http://otel-collector.{{ .Values.networkPolicies.observabilityNamespace }}:4318/v1/traces"
             - name: CODEPILL_TRACE_SAMPLING
