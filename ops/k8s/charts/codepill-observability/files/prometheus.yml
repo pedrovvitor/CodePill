@@ -1,0 +1,32 @@
+# Prometheus scrape config for the in-cluster stack (adapted from
+# ops/observability/prometheus/prometheus.yml; host.docker.internal targets
+# become k8s Service DNS).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Collector's own health + all OTLP-exported app metrics it re-exposes
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"] # collector internals
+      - targets: ["otel-collector:8889"] # app metrics via OTLP
+
+  - job_name: keycloak
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["keycloak.{{ .Values.appNamespace }}:9000"]
+
+  # Spring services expose /actuator/prometheus on their management port,
+  # reachable only from this pod (NetworkPolicy on 8081 in the app namespace).
+  - job_name: codepill-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["codepill-catalog.{{ .Values.appNamespace }}:8081"]
+        labels:
+          service: codepill-catalog

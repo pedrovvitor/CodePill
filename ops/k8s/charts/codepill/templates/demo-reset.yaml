@@ -1,0 +1,113 @@
+{{- if .Values.demo.enabled }}
+# Demo content lifecycle: the same idempotent seed runs as an Argo CD PostSync
+# hook (fresh content on every deploy) and as a nightly CronJob (visitors'
+# leftovers are swept). The demo database is disposable by design.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-seed
+data:
+  demo-seed.sql: |
+    {{- .Files.Get "files/demo-seed.sql" | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demo-seed-{{ .Release.Revision }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: codepill-demo-reset
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seed
+          image: {{ .Values.demo.psqlImage }}
+          command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/seed/demo-seed.sql"]
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: codepill_catalog
+            - name: PGUSER
+              value: codepill_catalog_svc
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-db
+                  key: CATALOG_DB_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+      volumes:
+        - name: seed
+          configMap:
+            name: demo-seed
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: demo-reset
+spec:
+  schedule: {{ .Values.demo.resetSchedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: codepill-demo-reset
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reset
+              image: {{ .Values.demo.psqlImage }}
+              command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/seed/demo-seed.sql"]
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGDATABASE
+                  value: codepill_catalog
+                - name: PGUSER
+                  value: codepill_catalog_svc
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: codepill-db
+                      key: CATALOG_DB_PASSWORD
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: seed
+                  mountPath: /seed
+                  readOnly: true
+          volumes:
+            - name: seed
+              configMap:
+                name: demo-seed
+{{- end }}

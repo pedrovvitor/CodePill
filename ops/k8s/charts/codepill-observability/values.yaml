@@ -1,0 +1,69 @@
+domain: codepill.example.com
+# Namespace where the application tier lives (Prometheus scrape targets)
+appNamespace: codepill
+
+ingress:
+  enabled: true
+  className: traefik
+  clusterIssuer: letsencrypt
+
+networkPolicies:
+  enabled: true
+  ingressNamespace: kube-system
+  ingressPodLabels:
+    app.kubernetes.io/name: traefik
+
+otelCollector:
+  image: otel/opentelemetry-collector-contrib:0.126.0
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+prometheus:
+  image: prom/prometheus:v3.4.0
+  storage: 5Gi
+  retention: 7d
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
+
+loki:
+  image: grafana/loki:3.5.0
+  storage: 5Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+tempo:
+  image: grafana/tempo:2.7.1
+  storage: 5Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+grafana:
+  image: grafana/grafana:12.0.0
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi

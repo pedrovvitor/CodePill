@@ -1,0 +1,77 @@
+{{- if .Values.networkPolicies.enabled }}
+# Data-tier callers, exhaustively. default-deny-ingress for the namespace is
+# declared in the codepill chart (same namespace, applied once there).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: codepill-catalog
+        - podSelector:
+            matchLabels:
+              app: keycloak
+        - podSelector:
+            matchLabels:
+              app: postgres-backup
+        - podSelector:
+            matchLabels:
+              app: codepill-demo-reset
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: codepill-catalog
+      ports:
+        - port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes: [Ingress]
+  ingress:
+    # Browser traffic (OIDC pages/endpoints) via the ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicies.ingressNamespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicies.ingressPodLabels | nindent 14 }}
+      ports:
+        - port: 8080
+    # Keycloak metrics/health for Prometheus
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicies.observabilityNamespace }}
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9000
+{{- end }}

@@ -1,0 +1,83 @@
+# codepill-web — static SPA behind unprivileged nginx. Runtime config
+# (config.js) and the CSP allowlists are derived from .Values.domain, so the
+# image itself stays environment-agnostic.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codepill-web
+  labels:
+    app: codepill-web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      app: codepill-web
+  template:
+    metadata:
+      labels:
+        app: codepill-web
+    spec:
+      enableServiceLinks: false # no service-link env noise near VITE_*/CSP vars
+      {{- if .Values.imagePullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: "{{ .Values.imageRegistry }}/{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: VITE_OIDC_AUTHORITY
+              value: "https://id.{{ .Values.domain }}/realms/codepill"
+            - name: VITE_OTLP_TRACES_URL
+              value: "https://otel.{{ .Values.domain }}/v1/traces"
+            - name: VITE_DEPLOYMENT_ENV
+              value: prod
+            - name: VITE_APP_VERSION
+              value: {{ .Values.web.image.tag | quote }}
+            - name: VITE_TRACE_SAMPLING
+              value: {{ .Values.web.traceSampling | quote }}
+            - name: VITE_DEMO_MODE
+              value: {{ .Values.demo.enabled | quote }}
+            # OIDC silent-renew iframe needs the IdP in frame-src
+            - name: CODEPILL_CSP_CONNECT_SRC
+              value: "'self' https://id.{{ .Values.domain }} https://otel.{{ .Values.domain }}"
+            - name: CODEPILL_CSP_FRAME_SRC
+              value: "'self' https://id.{{ .Values.domain }}"
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: codepill-web
+  labels:
+    app: codepill-web
+spec:
+  selector:
+    app: codepill-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

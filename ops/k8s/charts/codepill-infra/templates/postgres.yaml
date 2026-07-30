@@ -1,0 +1,135 @@
+# PostgreSQL — single instance, one database per owning service, each behind
+# its own least-privilege role (mirrors ops/db/init/01-create-databases.sql,
+# with passwords from the codepill-db Secret instead of dev fixtures).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+data:
+  01-create-databases.sh: |
+    #!/bin/sh
+    # Runs once on first start (docker-entrypoint-initdb.d). Existing volumes
+    # never re-run this — apply role/database changes manually.
+    set -eu
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" <<SQL
+    CREATE ROLE codepill_identity_svc LOGIN PASSWORD '${IDENTITY_DB_PASSWORD}';
+    CREATE ROLE codepill_catalog_svc  LOGIN PASSWORD '${CATALOG_DB_PASSWORD}';
+    CREATE ROLE keycloak_svc          LOGIN PASSWORD '${KEYCLOAK_DB_PASSWORD}';
+
+    CREATE DATABASE codepill_identity OWNER codepill_identity_svc;
+    CREATE DATABASE codepill_catalog  OWNER codepill_catalog_svc;
+    CREATE DATABASE keycloak          OWNER keycloak_svc;
+
+    REVOKE CONNECT ON DATABASE codepill_identity FROM PUBLIC;
+    REVOKE CONNECT ON DATABASE codepill_catalog  FROM PUBLIC;
+    REVOKE CONNECT ON DATABASE keycloak          FROM PUBLIC;
+    GRANT  CONNECT ON DATABASE codepill_identity TO codepill_identity_svc;
+    GRANT  CONNECT ON DATABASE codepill_catalog  TO codepill_catalog_svc;
+    GRANT  CONNECT ON DATABASE keycloak          TO keycloak_svc;
+    SQL
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d codepill_identity \
+      -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d codepill_catalog \
+      -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        fsGroup: 70 # postgres uid/gid in the alpine image
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          args:
+            - -c
+            - shared_preload_libraries=pg_stat_statements
+            - -c
+            - pg_stat_statements.track=all
+            - -c
+            - shared_buffers=192MB
+            - -c
+            - max_connections=120
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: codepill
+            - name: POSTGRES_DB
+              value: codepill
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-db
+                  key: POSTGRES_PASSWORD
+            - name: CATALOG_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-db
+                  key: CATALOG_DB_PASSWORD
+            - name: IDENTITY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-db
+                  key: IDENTITY_DB_PASSWORD
+            - name: KEYCLOAK_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-db
+                  key: KEYCLOAK_DB_PASSWORD
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "codepill", "-d", "codepill"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "codepill", "-d", "codepill"]
+            periodSeconds: 20
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}

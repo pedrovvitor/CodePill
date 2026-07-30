@@ -1,0 +1,63 @@
+# Public hostname of the SPA/API; Keycloak lives at id.<domain>, the OTLP
+# front door at otel.<domain> (see codepill-infra / codepill-observability).
+domain: codepill.example.com
+
+imageRegistry: ghcr.io/pedrovvitor
+# Name of an optional docker-registry Secret for GHCR pulls (created by the
+# bootstrap script while the packages are private). A dangling reference is
+# harmless once they go public.
+imagePullSecret: ghcr-pull
+
+ingress:
+  enabled: true
+  className: traefik
+  clusterIssuer: letsencrypt
+
+networkPolicies:
+  enabled: true
+  # k3s ships traefik in kube-system; ingress traffic originates from its pods.
+  ingressNamespace: kube-system
+  ingressPodLabels:
+    app.kubernetes.io/name: traefik
+  observabilityNamespace: codepill-observability
+
+catalog:
+  image:
+    repository: codepill-catalog
+    tag: latest # pinned to a commit SHA by CD
+  replicas: 1
+  # OBSERVABILITY.md §2 — prod samples 10%, errors tail-sampled at the collector
+  traceSampling: "0.1"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+# Demo-mode content lifecycle: seed on every Argo CD sync (PostSync hook) and
+# nightly reset. Disable for a non-demo deployment.
+demo:
+  enabled: true
+  psqlImage: postgres:17-alpine
+  resetSchedule: "0 4 * * *"
+
+web:
+  image:
+    repository: codepill-web
+    tag: latest # pinned to a commit SHA by CD
+  replicas: 1
+  traceSampling: "0.1"
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

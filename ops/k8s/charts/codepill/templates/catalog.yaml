@@ -1,0 +1,147 @@
+# codepill-catalog — Spring Boot resource server.
+# Actuator moves to a management port (8081) that the Ingress never routes;
+# /actuator/prometheus is opened (SPRING_APPLICATION_JSON) for the in-cluster
+# Prometheus only, enforced by the NetworkPolicy on 8081 — the SECURITY.md
+# §3.3 "network-restricted" scrape exception, now actually network-restricted.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codepill-catalog
+  labels:
+    app: codepill-catalog
+spec:
+  replicas: {{ .Values.catalog.replicas }}
+  selector:
+    matchLabels:
+      app: codepill-catalog
+  template:
+    metadata:
+      labels:
+        app: codepill-catalog
+    spec:
+      # Legacy service-link env vars would inject CODEPILL_CATALOG_PORT=tcp://…
+      # (from the Service name), colliding with the app's own variable
+      enableServiceLinks: false
+      {{- if .Values.imagePullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: catalog
+          image: "{{ .Values.imageRegistry }}/{{ .Values.catalog.image.repository }}:{{ .Values.catalog.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: MANAGEMENT_SERVER_PORT
+              value: "8081"
+            - name: SPRING_APPLICATION_JSON
+              value: '{"codepill":{"security":{"prometheus-public":true}}}'
+            # Metrics ship via the Prometheus scrape (OBSERVABILITY.md §4.1);
+            # Boot 4's default OTLP metrics push would double-report them
+            - name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
+              value: "false"
+            - name: CODEPILL_ENV
+              value: prod
+            - name: CODEPILL_CATALOG_DB_URL
+              value: jdbc:postgresql://postgres:5432/codepill_catalog
+            - name: CODEPILL_DB_USER
+              value: codepill_catalog_svc
+            - name: CODEPILL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-db
+                  key: CATALOG_DB_PASSWORD
+            - name: CODEPILL_REDIS_HOST
+              value: redis
+            - name: CODEPILL_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepill-redis
+                  key: REDIS_PASSWORD
+            - name: CODEPILL_OIDC_ISSUER
+              value: "https://id.{{ .Values.domain }}/realms/codepill"
+            - name: CODEPILL_OTLP_TRACES_ENDPOINT
+              value: "http://otel-collector.{{ .Values.networkPolicies.observabilityNamespace }}:4318/v1/traces"
+            - name: CODEPILL_TRACE_SAMPLING
+              value: {{ .Values.catalog.traceSampling | quote }}
+            - name: CODEPILL_SERVICE_VERSION
+              value: {{ .Values.catalog.image.tag | quote }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75"
+          resources:
+            {{- toYaml .Values.catalog.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: codepill-catalog
+  labels:
+    app: codepill-catalog
+spec:
+  selector:
+    app: codepill-catalog
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: management
+      port: 8081
+      targetPort: management
+{{- if .Values.catalog.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: codepill-catalog
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: codepill-catalog
+  minReplicas: {{ .Values.catalog.hpa.minReplicas }}
+  maxReplicas: {{ .Values.catalog.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.catalog.hpa.targetCPUUtilizationPercentage }}
+{{- end }}

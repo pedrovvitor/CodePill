@@ -1,0 +1,71 @@
+{{- if .Values.backup.enabled }}
+# Nightly logical backups of every database to a dedicated PVC, rotated after
+# {{ .Values.backup.retentionDays }} days. Single-node demo scope: protects
+# against app-level data loss, not node loss — see ops/k8s/README.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.backup.storage }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: postgres-backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: {{ .Values.postgres.image }}
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  ts=$(date -u +%Y%m%dT%H%M%SZ)
+                  for db in codepill_catalog keycloak; do
+                    pg_dump -h postgres -U codepill -d "$db" -Fc \
+                      -f "/backups/${db}-${ts}.dump"
+                  done
+                  find /backups -name '*.dump' -mtime +{{ .Values.backup.retentionDays }} -delete
+                  ls -lh /backups
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: codepill-db
+                      key: POSTGRES_PASSWORD
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: postgres-backups
+{{- end }}

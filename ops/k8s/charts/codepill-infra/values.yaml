@@ -1,0 +1,61 @@
+domain: codepill.example.com
+
+ingress:
+  enabled: true
+  className: traefik
+  clusterIssuer: letsencrypt
+
+# ACME issuer for cert-manager (installed by its own Argo CD app). Disable on
+# clusters without cert-manager (e.g. local kind smoke tests).
+clusterIssuer:
+  enabled: true
+  email: "" # REQUIRED at deploy: Let's Encrypt expiry notices
+  server: https://acme-v02.api.letsencrypt.org/directory
+
+networkPolicies:
+  enabled: true
+  ingressNamespace: kube-system
+  ingressPodLabels:
+    app.kubernetes.io/name: traefik
+  observabilityNamespace: codepill-observability
+
+postgres:
+  image: postgres:17-alpine
+  storage: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+
+redis:
+  image: redis:7-alpine
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 320Mi
+
+keycloak:
+  image: quay.io/keycloak/keycloak:26.2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 640Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Demo accounts are surfaced on the login screen by design — this is not a
+  # secret. The Keycloak admin password IS one (keycloak-admin Secret).
+  demoUserPassword: codepill-demo
+
+backup:
+  enabled: true
+  schedule: "10 3 * * *"
+  storage: 2Gi
+  retentionDays: 7

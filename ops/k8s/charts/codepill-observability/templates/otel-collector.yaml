@@ -1,0 +1,112 @@
+# Single OTLP front door. The only piece of this tier on the public internet
+# is POST /v1/traces on otel.<domain> (browser spans need it); everything else
+# is cluster-internal. The memory_limiter processor bounds abuse of the public
+# endpoint; the ingress routes that one path only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+data:
+  config.yml: |
+    {{- tpl (.Files.Get "files/otel-collector.yml") . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: metrics-self
+      port: 8888
+      targetPort: metrics-self
+    - name: metrics-apps
+      port: 8889
+      targetPort: metrics-apps
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+      annotations:
+        checksum/config: {{ tpl (.Files.Get "files/otel-collector.yml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: otel-collector
+          image: {{ .Values.otelCollector.image }}
+          args: ["--config=/etc/otelcol/config.yml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: metrics-self
+              containerPort: 8888
+            - name: metrics-apps
+              containerPort: 8889
+          resources:
+            {{- toYaml .Values.otelCollector.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: otel-collector
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - otel.{{ .Values.domain }}
+      secretName: otel-collector-tls
+  rules:
+    - host: otel.{{ .Values.domain }}
+      http:
+        paths:
+          - path: /v1/traces
+            pathType: Exact
+            backend:
+              service:
+                name: otel-collector
+                port:
+                  name: otlp-http
+{{- end }}

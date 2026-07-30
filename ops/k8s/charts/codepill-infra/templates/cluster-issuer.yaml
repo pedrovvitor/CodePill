@@ -1,0 +1,18 @@
+{{- if .Values.clusterIssuer.enabled }}
+# Let's Encrypt via HTTP-01 through traefik. cert-manager itself is installed
+# by its own Argo CD app (earlier sync wave).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: {{ .Values.clusterIssuer.server }}
+    email: {{ required "clusterIssuer.email is required (Let's Encrypt expiry notices)" .Values.clusterIssuer.email }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.ingress.className }}
+{{- end }}
