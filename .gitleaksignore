@@ -1,0 +1,6 @@
+# False positives pinned by fingerprint (commit:file:rule:line) — the narrow
+# alternative to widening .gitleaks.toml allowlists.
+
+# README architecture tree line ("keycloak realm, otel/grafana/loki/tempo/…")
+# tripping generic-api-key after a gitleaks rule update. Prose, not a secret.
+5b021738274334012f1f007b4e9872016f82f469:README.md:generic-api-key:275
