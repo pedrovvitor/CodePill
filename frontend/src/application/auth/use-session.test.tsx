@@ -37,6 +37,15 @@ beforeEach(() => {
 })
 
 describe('useSession', () => {
+  it('carries a safe detail destination through OIDC state', () => {
+    const destination = '/pills/e6f1a1c0-0000-4000-8000-000000000001'
+    const auth = authState({ user: { state: destination, profile: {} } as never })
+    useAuthMock.mockReturnValue(auth)
+    const { result } = renderUseSession()
+    result.current.signIn(destination)
+    expect(auth.signinRedirect).toHaveBeenCalledWith({ state: destination })
+    expect(result.current.returnPath).toBe(destination)
+  })
   it('exposes roles decoded from the access token and the display name', () => {
     useAuthMock.mockReturnValue(
       authState({

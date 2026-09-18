@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from 'react-oidc-context'
 import { decodeRolesFromAccessToken } from './token-claims'
+import { safeReturnPath } from '../../domain/auth/return-path'
 
 export interface Session {
   isLoading: boolean
@@ -10,7 +11,8 @@ export interface Session {
   roles: string[]
   displayName: string | null
   error: Error | null
-  signIn: () => void
+  returnPath?: string
+  signIn: (returnPath?: string) => void
   signOut: () => void
 }
 
@@ -27,7 +29,8 @@ export function useSession(): Session {
     roles,
     displayName: auth.user?.profile.preferred_username ?? null,
     error: auth.error ?? null,
-    signIn: () => void auth.signinRedirect(),
+    returnPath: safeReturnPath(auth.user?.state),
+    signIn: (returnPath) => void auth.signinRedirect({ state: safeReturnPath(returnPath) }),
     signOut: () => {
       // Server-state cache is per-user: purge it before the redirect so
       // nothing cached for user A survives into the next session.

@@ -1,6 +1,7 @@
 import { Link, Navigate } from 'react-router'
 import { useSession } from '../../application/auth/use-session'
 import { Spinner } from '../design-system/Spinner'
+import { safeReturnPath } from '../../domain/auth/return-path'
 
 /** Redirect URI target: shows progress while the code/PKCE exchange completes. */
 export function AuthCallbackPage() {
@@ -19,7 +20,7 @@ export function AuthCallbackPage() {
     )
   }
 
-  if (session.isAuthenticated) return <Navigate to="/" replace />
+  if (session.isAuthenticated) return <Navigate to={safeReturnPath(session.returnPath)} replace />
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-3">

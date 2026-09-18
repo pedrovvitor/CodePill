@@ -25,6 +25,9 @@ const CreatePillPage = lazy(() =>
   import('../ui/pages/CreatePillPage').then((m) => ({ default: m.CreatePillPage })),
 )
 const FeedPage = lazy(() => import('../ui/pages/FeedPage').then((m) => ({ default: m.FeedPage })))
+const PillDetailPage = lazy(() =>
+  import('../ui/pages/PillDetailPage').then((m) => ({ default: m.PillDetailPage })),
+)
 const LoginPage = lazy(() =>
   import('../ui/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
 )
@@ -61,6 +64,7 @@ export function AppRoutes() {
           <Route element={<AppShell />}>
             <Route path="/" element={<FeedPage />} />
             <Route path="/pills/new" element={<CreatePillPage />} />
+            <Route path="/pills/:id" element={<PillDetailPage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
