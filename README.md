@@ -1,5 +1,9 @@
 # 💊 CodePill — Microlearning, engineered
 
+> **Status: work in progress — no official release yet.** CodePill is a portfolio project for local development. It has no hosted deployment and is not production-ready. The catalog, authentication, authoring form, and feed are implemented; full-content reading, browser-based curation, and learning progress are still being developed. Follow the [implementation backlog](https://github.com/pedrovvitor/CodePill/issues).
+
+**Current delivery limitation:** the container security scan blocks image publication on dependency vulnerabilities, tracked in [#1](https://github.com/pedrovvitor/CodePill/issues/1). Backend, frontend, and E2E jobs passed in the [assessed run](https://github.com/pedrovvitor/CodePill/actions/runs/35339723443); that does not make the full pipeline green.
+
 [![CI](https://github.com/pedrovvitor/CodePill/actions/workflows/main.yml/badge.svg)](https://github.com/pedrovvitor/CodePill/actions/workflows/main.yml)
 ![Java 25](https://img.shields.io/badge/Java-25_LTS-orange?logo=openjdk&logoColor=white)
 ![Spring Boot 4](https://img.shields.io/badge/Spring_Boot-4.x-6DB33F?logo=springboot&logoColor=white)
@@ -10,12 +14,12 @@
 ![Redis 7](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-traces%20%C2%B7%20logs%20%C2%B7%20metrics-blueviolet?logo=opentelemetry&logoColor=white)
 
-**CodePill** is a mobile-first microlearning platform: authors write short, focused learning "pills", curators publish them, and learners scroll a TikTok-style vertical feed. Small product — deliberately. The product is simple **so the engineering can be uncompromising**.
+**CodePill** is a microlearning platform in development: authors create short learning "pills", curators can publish them through the API, and learners browse their summaries in a mobile-first feed. The project explores Java/React architecture, authorization, caching, testing, and observability through a small product.
 
-This repository demonstrates what "production-ready" actually means, end to end:
+Engineering implemented so far:
 
-- **A vertical slice that works** — OAuth2 login → authoring → curation → an infinite feed, covered by Playwright journeys against a real Keycloak + Postgres + Redis stack.
-- **Failure-mode engineering, not happy-path demos** — every external call has a timeout, the cache fails open *fast*, evictions are transaction-aware, write endpoints are rate-limited, and a degraded Redis cannot take the database down with it.
+- **An initial catalog slice** — OAuth2 login, draft creation, and feed browsing have Playwright coverage against Keycloak + Postgres + Redis. Test fixtures publish through the API; a complete browser-based curation and learning journey remains on the roadmap.
+- **Failure handling** — bounded Redis/JWKS calls, fail-open caching, transaction-aware eviction, and rate-limited writes, with regression tests for these paths.
 - **Observability as a first-class requirement** — every request is traceable from a browser click to the SQL statement it triggered, with logs, traces, and metrics correlated by `trace_id`.
 - **Governance you can read** — mandatory engineering standards live in [`docs/standards/`](docs/standards), every change is logged in [`STATE_OF_THE_APP.md`](docs/standards/STATE_OF_THE_APP.md), and the rules are *executable* (ArchUnit, coverage gates, security scanners — the build fails, not the reviewer's patience).
 

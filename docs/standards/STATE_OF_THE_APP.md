@@ -1,6 +1,6 @@
 # CodePill — State of the App (Living Changelog)
 
-> **Status:** MANDATORY · **Owner:** Everyone · **Last updated:** 2026-07-29
+> **Status:** MANDATORY · **Owner:** Everyone · **Last updated:** 2026-09-18
 >
 > ⚠️ **AGENT PROTOCOL — NON-NEGOTIABLE**
 > This file is the single source of truth for what has been done, what is in flight, and what is next.
@@ -15,6 +15,7 @@
 
 ## Current Snapshot
 
+- **Portfolio status (2026-09-18):** Work in progress; no official release or hosted deployment. Public-sharing preparation and backlog issues #1–#6 are recorded below. Full-content reading, browser curation and learner progress remain incomplete. The latest assessed CI run passed backend/frontend/E2E/repository-security checks but failed the image vulnerability gate; historical green results below are not a current all-green claim.
 - **Phase:** 1 — First vertical slice complete (catalog service + web SPA + CI pipeline + E2E journeys)
 - **Deployable services:** `codepill-catalog` (Java 25, Spring Boot 4.0.7, Maven multi-module under `/backend`, wrapper committed). Runs on host port **8080** (`CODEPILL_CATALOG_PORT`), scraped by Prometheus via `host.docker.internal:8080`.
 - **Local dev infrastructure:** ✅ docker-compose stack (PostgreSQL 17, Redis 7, Keycloak 26.2, OTel Collector, Prometheus, Grafana, Loki, Tempo) — see "Local Dev Stack" below.
@@ -106,6 +107,22 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 ---
 
 ## Log (newest first)
+
+## [2026-09-18] Prepare public development showcase and register implementation issues
+- **Agent/Author:** Codex
+- **Task:** Make the portfolio shareable immediately, clarify development status and publish actionable backlog items without claiming production readiness.
+- **Changes:** Revised README status, scope and delivery limitations; registered CodePill issues [#1](https://github.com/pedrovvitor/CodePill/issues/1)–[#6](https://github.com/pedrovvitor/CodePill/issues/6). Also updated the two public companion repositories' README/description and registered missing Talent Intelligence backlog items. Preserved existing wexchange issues rather than duplicating them. Prepared CodePill for the user-authorized public visibility change.
+- **Standards compliance:** Documentation/metadata only; no application behavior, tests, security controls or scan thresholds changed. TDD and new telemetry N/A. Existing full-history gitleaks step succeeded on the assessed remote HEAD before public-sharing preparation.
+- **Tests:** Reviewed documentation and diff whitespace. Run [35339723443](https://github.com/pedrovvitor/CodePill/actions/runs/35339723443) passed backend, frontend, E2E and repository security; image Trivy failed and remains blocking, tracked in #1. No new local application test run.
+- **Follow-ups / debt:** Implement #1 before deployment; #2–#3 complete the browser showcase; #4–#6 track deployment validation, governance and learner progress. No release or deployment created.
+
+## [2026-09-18] Portfolio assessment and prioritized showcase backlog
+- **Agent/Author:** Codex
+- **Task:** Assess wexchange, CodePill, and talent-intelligence-platform for recruiter sharing and prepare implementation issues.
+- **Changes:** Added `docs/portfolio-assessment-2026-09-18.md` with repository/commit evidence, CI status, strengths, limitations, and 20 prioritized backlog items that reuse existing GitHub issues where available. Confirmed CodePill is private; remote main differs from this checkout only in the README title. No GitHub issues, visibility settings, or application behavior changed; Current Snapshot runtime facts are unchanged.
+- **Standards compliance:** Documentation-only assessment; TDD, coverage changes, telemetry, and endpoint security matrix N/A. Read all mandatory standards. Recorded governance discrepancies as follow-up work rather than changing architecture policy.
+- **Tests:** Static inspection of representative source, tests, builds, workflows, documentation, and GitHub issues/PRs; observed successful CI on assessed commits. No application suites, live demos, secret scans, or penetration tests executed in this task. Reviewed documentation diff and whitespace with `git diff --check`.
+- **Follow-ups / debt:** Execute the linked assessment backlog: repository access, end-to-end reading/curation UI, accurate showcase materials, deployment validation, and standards alignment. No production-readiness certification implied.
 
 ## [2026-07-30] Local demo stack (all-Docker) + split-horizon JWT fix it uncovered
 - **Agent/Author:** Claude (platform engineering session)
