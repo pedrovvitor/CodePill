@@ -1,4 +1,4 @@
-# 💊 CodePill — Microlearning, engineered like it's going to production tomorrow
+# 💊 CodePill — Microlearning, engineered
 
 [![CI](https://github.com/pedrovvitor/CodePill/actions/workflows/main.yml/badge.svg)](https://github.com/pedrovvitor/CodePill/actions/workflows/main.yml)
 ![Java 25](https://img.shields.io/badge/Java-25_LTS-orange?logo=openjdk&logoColor=white)
