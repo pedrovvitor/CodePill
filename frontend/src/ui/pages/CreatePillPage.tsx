@@ -81,6 +81,12 @@ function CreatePillForm() {
         >
           Create another
         </Button>
+        <Link to={`/pills/${createPill.data.id}`} className="font-medium text-brand-100 underline">
+          View draft
+        </Link>
+        <p className="text-sm text-slate-400">
+          Share the draft page URL with a curator for review.
+        </p>
         <Link to="/" className="text-sm font-medium text-brand-100 underline">
           Back to feed
         </Link>

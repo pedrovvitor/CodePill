@@ -1,0 +1,33 @@
+# Optional local-demo isolation. Compose project name scopes names and volumes.
+# Requires Docker Compose >= 2.24.4 for !override. Keep this file LAST.
+services:
+  postgres:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgres
+    ports: !override
+      - "127.0.0.1:${CODEPILL_DEMO_DB_PORT:-15433}:5432"
+  redis:
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+  flyway-identity:
+    container_name: ${COMPOSE_PROJECT_NAME}-flyway-identity
+  flyway-catalog:
+    container_name: ${COMPOSE_PROJECT_NAME}-flyway-catalog
+  db-seed:
+    container_name: ${COMPOSE_PROJECT_NAME}-db-seed
+  keycloak:
+    container_name: ${COMPOSE_PROJECT_NAME}-keycloak
+  otel-collector:
+    container_name: ${COMPOSE_PROJECT_NAME}-otel-collector
+  prometheus:
+    container_name: ${COMPOSE_PROJECT_NAME}-prometheus
+  loki:
+    container_name: ${COMPOSE_PROJECT_NAME}-loki
+  tempo:
+    container_name: ${COMPOSE_PROJECT_NAME}-tempo
+  grafana:
+    container_name: ${COMPOSE_PROJECT_NAME}-grafana
+  catalog:
+    container_name: ${COMPOSE_PROJECT_NAME}-catalog
+  web:
+    container_name: ${COMPOSE_PROJECT_NAME}-web
+  demo-seed:
+    container_name: ${COMPOSE_PROJECT_NAME}-demo-seed

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { renderWithProviders as render } from '../../test/test-utils'
 import { aPill } from '../../test/fixtures'
 import { PillCard } from './PillCard'
 

@@ -1,8 +1,8 @@
 # 💊 CodePill — Microlearning, engineered
 
-> **Status: work in progress — no official release yet.** CodePill is a portfolio project for local development. It has no hosted deployment and is not production-ready. The catalog, authentication, authoring form, and feed are implemented; full-content reading, browser-based curation, and learning progress are still being developed. Follow the [implementation backlog](https://github.com/pedrovvitor/CodePill/issues).
+> **Status: work in progress — no official release yet.** CodePill is a portfolio project for local development. It has no hosted deployment and is not production-ready. The catalog, authentication, authoring, full-text reading and browser publication are implemented. Persisted learning progress and richer content interactions remain on the [implementation backlog](https://github.com/pedrovvitor/CodePill/issues).
 
-**Current delivery limitation:** the container security scan blocks image publication on dependency vulnerabilities, tracked in [#1](https://github.com/pedrovvitor/CodePill/issues/1). Backend, frontend, and E2E jobs passed in the [assessed run](https://github.com/pedrovvitor/CodePill/actions/runs/35339723443); that does not make the full pipeline green.
+**Security validation:** the dependency fix for [#1](https://github.com/pedrovvitor/CodePill/issues/1) passes the existing critical image gate locally for both rebuilt application images. See [versions, findings and reproduction commands](docs/security-validation-2026-09-18.md). The main-branch build must still validate and publish its own scanned artifacts; local results are not a production certification.
 
 [![CI](https://github.com/pedrovvitor/CodePill/actions/workflows/main.yml/badge.svg)](https://github.com/pedrovvitor/CodePill/actions/workflows/main.yml)
 ![Java 25](https://img.shields.io/badge/Java-25_LTS-orange?logo=openjdk&logoColor=white)
@@ -14,11 +14,19 @@
 ![Redis 7](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-traces%20%C2%B7%20logs%20%C2%B7%20metrics-blueviolet?logo=opentelemetry&logoColor=white)
 
-**CodePill** is a microlearning platform in development: authors create short learning "pills", curators can publish them through the API, and learners browse their summaries in a mobile-first feed. The project explores Java/React architecture, authorization, caching, testing, and observability through a small product.
+**CodePill** is a microlearning platform in development: authors create short learning "pills", curators review and publish them in the browser, and learners open the full text from a mobile-first feed. The project explores Java/React architecture, authorization, caching, testing, and observability through a small product.
+
+## Local showcase
+
+Follow the [Docker quickstart and five-minute walkthrough](ops/local-demo/README.md) to run the app at `localhost:5173` with synthetic accounts and content. The screenshots below come from the local development build on 2026-09-18. Text bodies are rendered safely as plain text; interactive quizzes, rich media and learning completion are not implemented.
+
+| Published feed (desktop) | Full lesson (mobile) |
+|---|---|
+| ![Published feed in the local desktop build](docs/showcase/feed-desktop.png) | ![Full-text reading in the local mobile build](docs/showcase/reading-mobile.png) |
 
 Engineering implemented so far:
 
-- **An initial catalog slice** — OAuth2 login, draft creation, and feed browsing have Playwright coverage against Keycloak + Postgres + Redis. Test fixtures publish through the API; a complete browser-based curation and learning journey remains on the roadmap.
+- **A browser catalog journey** — seven Playwright journeys cover OAuth2 login, draft creation, curator publication, full-text reading and feed pagination against Keycloak + Postgres + Redis, including denial of learner access to drafts. Learning completion remains on the roadmap.
 - **Failure handling** — bounded Redis/JWKS calls, fail-open caching, transaction-aware eviction, and rate-limited writes, with regression tests for these paths.
 - **Observability as a first-class requirement** — every request is traceable from a browser click to the SQL statement it triggered, with logs, traces, and metrics correlated by `trace_id`.
 - **Governance you can read** — mandatory engineering standards live in [`docs/standards/`](docs/standards), every change is logged in [`STATE_OF_THE_APP.md`](docs/standards/STATE_OF_THE_APP.md), and the rules are *executable* (ArchUnit, coverage gates, security scanners — the build fails, not the reviewer's patience).

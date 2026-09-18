@@ -1,4 +1,5 @@
-import { Navigate } from 'react-router'
+import { Navigate, useLocation } from 'react-router'
+import { safeReturnPath } from '../../domain/auth/return-path'
 import { useSession } from '../../application/auth/use-session'
 import { Button } from '../design-system/Button'
 
@@ -16,6 +17,11 @@ interface LoginPageProps {
 /** Entry point of the OAuth2 Authorization Code + PKCE flow (SECURITY.md §2.1). */
 export function LoginPage({ demoAccounts = [], demoPassword }: LoginPageProps = {}) {
   const session = useSession()
+  const location = useLocation()
+  const state: unknown = location.state
+  const destination = safeReturnPath(
+    state !== null && typeof state === 'object' && 'from' in state ? state.from : undefined,
+  )
 
   if (session.isAuthenticated) return <Navigate to="/" replace />
 
@@ -33,7 +39,7 @@ export function LoginPage({ demoAccounts = [], demoPassword }: LoginPageProps = 
           {session.error.message}
         </p>
       )}
-      <Button onClick={session.signIn} className="w-full">
+      <Button onClick={() => session.signIn(destination)} className="w-full">
         Sign in with CodePill ID
       </Button>
       {demoAccounts.length > 0 && (
