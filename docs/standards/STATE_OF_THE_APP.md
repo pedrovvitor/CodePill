@@ -17,7 +17,7 @@
 
 - **Portfolio status (2026-09-18):** Public repository, work in progress; no official release or hosted deployment. Backlog issues #1–#6 are open. Full-content reading, browser curation and learner progress remain incomplete. The latest assessed CI run passed backend/frontend/E2E/repository-security checks but failed the image vulnerability gate; historical green results below are not a current all-green claim.
 - **Phase:** 1 — First vertical slice complete (catalog service + web SPA + CI pipeline + E2E journeys)
-- **Deployable services:** `codepill-catalog` (Java 25, Spring Boot 4.0.7, Maven multi-module under `/backend`, wrapper committed). Runs on host port **8080** (`CODEPILL_CATALOG_PORT`), scraped by Prometheus via `host.docker.internal:8080`.
+- **Deployable services:** `codepill-catalog` (Java 25, Spring Boot 4.0.8, Tomcat 11.0.26 override, Maven multi-module under `/backend`, wrapper committed). Runs on host port **8080** (`CODEPILL_CATALOG_PORT`), scraped by Prometheus via `host.docker.internal:8080`.
 - **Local dev infrastructure:** ✅ docker-compose stack (PostgreSQL 17, Redis 7, Keycloak 26.2, OTel Collector, Prometheus, Grafana, Loki, Tempo) — see "Local Dev Stack" below.
 - **Database schema:** Flyway v1 for `codepill_identity` (users, still under `ops/db/migrations/identity/`) and `codepill_catalog` (pills, tags, pill_tags — now owned by the service at `backend/codepill-catalog/adapters/out/persistence/src/main/resources/db/migration/`, checksum-identical; compose mounts that path).
 - **Frontend:** ✅ `codepill-web` SPA under `/frontend` (React 19 + TypeScript strict, Vite 8, pnpm, Tailwind 4). Clean Architecture layers per `ARCHITECTURE.md` §4 enforced by `eslint-plugin-boundaries`; OAuth2 Code+PKCE via `react-oidc-context` (tokens in memory); TanStack Query 5 for all server state; API types generated from the OpenAPI contract; OTel browser tracing → collector `:4318`. Dev server on **5173** (Vite proxy `/api` → `localhost:8080`). See the 2026-07-10 entry for structure and decisions.
@@ -107,6 +107,14 @@ Single Docker bridge network **`codepill-net`** (project name `codepill`). Only 
 ---
 
 ## Log (newest first)
+
+## [2026-09-18] Patch critical application-image dependencies and rehearse locally
+- **Agent/Author:** Codex
+- **Task:** Start the reliability delivery for issue #1; prepare locally, with hosting explicitly deferred by the user.
+- **Changes:** Upgraded Boot 4.0.7 to 4.0.8 (Netty 4.2.17.Final), overriding Tomcat to 11.0.26 because the BOM's 11.0.24 precedes the fixes. Added `docs/security-validation-2026-09-18.md` with CVEs, versions and reproduction commands. Built and ran both app images on an isolated local Compose project, preserving existing containers/data.
+- **Standards compliance:** The failing critical image scan is the regression criterion for this dependency-only fix. Existing tests and all coverage/security thresholds retained; no exclusions. No new application path or telemetry change. No architecture deviation.
+- **Tests:** Backend `verify` passed before and after the update, including real PostgreSQL/Redis integration tests, ArchUnit and JaCoCo gates. Frontend coverage passed (99.21% statements, 91.62% branches). Both rebuilt app images passed Trivy 0.72.0 CRITICAL/ignore-unfixed. Six Playwright journeys passed against the local container stack, without retries.
+- **Follow-ups / debt:** Remote CI and its scanned-artifact publication must still run after merge; #1 remains open until that verification. Reading/curation (#2), visual showcase (#3), production controls (#4), governance (#5), and progress (#6) remain separate. No hosted deployment, release or production-readiness claim.
 
 ## [2026-09-18] Prepare public development showcase and register implementation issues
 - **Agent/Author:** Codex

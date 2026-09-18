@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.0.7</version>
+    <version>4.0.8</version>
     <relativePath/>
   </parent>
 
@@ -25,6 +25,8 @@
 
   <properties>
     <java.version>25</java.version>
+    <!-- Boot 4.0.8 manages 11.0.24; keep the patched 11.0 line until its BOM catches up. -->
+    <tomcat.version>11.0.26</tomcat.version>
     <testcontainers.version>1.21.3</testcontainers.version>
     <archunit.version>1.4.1</archunit.version>
     <logstash-logback-encoder.version>8.1</logstash-logback-encoder.version>
