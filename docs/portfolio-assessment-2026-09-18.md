@@ -1,5 +1,7 @@
 # Assessment de portfólio — 18/09/2026
 
+> **Atualização após o assessment:** CodePill foi tornado público por solicitação do autor; os três projetos foram fixados no perfil e seus READMEs/descrições agora explicitam desenvolvimento local, sem deploy ou alegação de produção. Foram abertas [CodePill #1–#6](https://github.com/pedrovvitor/CodePill/issues) e [Talent Intelligence #48–#52](https://github.com/pedrovvitor/talent-intelligence-platform/issues). O parecer abaixo registra o estado observado antes desses ajustes. O run CodePill 35339723443 posteriormente terminou com testes e scan de segredos aprovados, mas falha no scan da imagem, registrada em #1. A visibilidade do perfil pessoal é separada da visibilidade dos repositórios.
+
 ## Parecer
 
 **Sim, já vale compartilhar seu GitHub como portfólio de engenharia em evolução.** Há implementação, testes e decisões técnicas suficientes para uma conversa séria de backend/full stack. Ainda não apresentaria os três como produtos completos ou prontos para produção.
